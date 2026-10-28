@@ -62,9 +62,13 @@
 └─ frontend/                       ← Vite + React 앱
    ├─ vite.config.ts               /api 를 백엔드(18290)로 넘김
    └─ src/
-      ├─ App.tsx                   화면 주소(라우트)
-      ├─ lib/api.ts                fetch 래퍼 (오류는 서버의 message 를 그대로)
-      └─ pages/                    HomePage(/), SearchPage(/search), CoursePage(/courses/:id), SavedPage(/saved), NotFoundPage
+      ├─ App.tsx                   화면 주소(라우트), 전체를 MapLayout 으로 감쌈
+      ├─ map/                      MapLayout(왼쪽 화면 + 오른쪽 지도, 휴대폰은 지도가 위), context.ts(useMap: 지도·지도 위 버튼 자리)
+      ├─ components/               KeywordPicker (키워드 칩: 3개까지, 실내외·예산은 하나만)
+      ├─ types/                    naver-maps.d.ts (네이버 지도 v3 중 쓰는 것만 적은 타입)
+      ├─ lib/                      api.ts(fetch 래퍼, 오류는 서버 message 그대로), types.ts(API 응답 모양), naverMap.ts(스크립트 한 번만 불러오기, 숫자 핀, 반경↔확대),
+      │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표)
+      └─ pages/                    HomePage(/), SearchPage(/search?lat=&lng=&r=&kw=), CoursePage(/courses/:id), SavedPage(/saved), NotFoundPage
 ```
 
 - 다른 도메인의 entity 를 컨트롤러에서 직접 쓰지 말고 service 를 통해 접근합니다.
@@ -175,6 +179,13 @@ cd backend
 - 네이버지도 링크는 API 없이 `https://map.naver.com/p/search/{이름 지점 시군구}`.
 - 서버(로컬 포함)는 모두 같은 운영 DB 를 보므로 로컬 서버의 새벽 점수 계산도 운영 DB 를 고칩니다(같은 결과라 문제는 없음).
 
+### 화면 (frontend)
+- **지도는 앱에 하나**: `MapLayout` 이 처음 한 번만 `new naver.maps.Map` 을 만들고, 화면들은 `useMap()` 으로 받아 핀·선만 그렸다 지웁니다(useEffect 정리 함수에서 `setMap(null)`). Dynamic Map 은 지도를 만들 때마다 이용 횟수가 세어지기 때문입니다.
+- 네이버 지도는 지도 칸에 `position: relative` 를 넣으므로 `.map` 은 `inset` 대신 `width/height: 100%` 로 채웁니다(처음에 높이 0 이 돼 지도가 안 보였음).
+- 지역 이름 검색(Geocoding)은 유료라 쓰지 않습니다. 지도를 옮기거나, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
+- 검색 화면: 순위 핀(코스 가운데) → 카드나 핀을 누르면 그 코스의 단계 핀과 동선(점선)을 그리고 지도를 맞춥니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
+- 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
+
 ## 8. 코드 스타일
 
 - 주석과 사용자에게 보이는 문구는 **한국어**로 씁니다.
@@ -203,5 +214,6 @@ cd backend
 - [x] 코스 자동 조합 (`--collect=courses`): 2026-10-29 전국 9,618개 (4단계 8,760, 3단계 858), 평균 246분, 53초
 - [x] 순위 점수(매일 04:30), 코스 검색·상세 API (Redis 캐시)
 - [ ] 반응(저장·좋아요·다녀왔어요) API, 관리자 큐레이션
-- [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
+- [x] 화면: 지도(하나만), 인기 지역·내 주변, 키워드, 코스 순위 목록·핀·동선, 코스 상세
+- [ ] 화면: 근처 대안 바꿔 끼우기, 저장·반응, 내 저장
 - [ ] 배포 (GitHub Actions, nginx, DNS)
