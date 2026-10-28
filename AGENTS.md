@@ -19,8 +19,8 @@
 
 | 영역 | 사용 기술 |
 |---|---|
-| 백엔드 | Java 17, Spring Boot 4.1, Gradle(wrapper), Spring Web MVC. DB 를 붙일 때 Spring Data JPA |
-| DB | PostgreSQL 16. 힐링룸과 **같은 DB(`healing_room`)·계정**, 테이블은 전용 스키마 **`date_course`** 에만. 앱 연결(JPA)은 아직 전 |
+| 백엔드 | Java 17, Spring Boot 4.1, Gradle(wrapper), Spring Web MVC, Spring Data JPA |
+| DB | PostgreSQL 16. 힐링룸과 **같은 DB(`healing_room`)·계정**, 테이블은 전용 스키마 **`date_course`** 에만 (`currentSchema`, `hibernate.default_schema`) |
 | 프론트엔드 | React 19, TypeScript, Vite, react-router. 지도는 네이버 지도 JavaScript API v3 (Dynamic Map, 예정) |
 | 테스트 | JUnit 5, MockMvc, Mockito (`@WebMvcTest`, `@MockitoBean`) |
 
@@ -35,10 +35,16 @@
 │  ├─ .env.example                 ← 환경변수 형식 (.env 는 git 제외)
 │  └─ src/main/java/com/datecourse/
 │     ├─ DateCourseApplication.java
-│     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (예정: place, course, keyword, reaction, collector, admin)
+│     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (예정: collector, admin)
+│     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
+│     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
+│     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget)
+│     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal)
+│     │  └─ reaction/              Reaction, ReactionKind(save/like/visited)
 │     └─ global/
 │        ├─ controller/            HealthController  GET /api/health
-│        └─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
+│        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
+│        └─ util/                  LowercaseEnumConverter (enum 을 DB 에 소문자로: 각 enum 의 DbConverter 가 상속)
 └─ frontend/                       ← Vite + React 앱
    ├─ vite.config.ts               /api 를 백엔드(18290)로 넘김
    └─ src/
@@ -55,7 +61,7 @@
 ```bash
 cd backend
 ./gradlew bootRun     # → http://localhost:18290 (Windows: gradlew.bat bootRun)
-./gradlew test
+./gradlew test        # 실제 DB 에 붙는 통합 테스트(@Tag("integration"))까지. CI 는 ./gradlew test -Pci (DB 없이)
 
 cd frontend
 npm install
@@ -110,7 +116,7 @@ npm run lint
 - [x] 뼈대: 백엔드(헬스 체크), 프론트(화면 주소, 서버 연결 확인)
 - [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
-- [ ] 백엔드에 JPA 연결, 엔티티
+- [x] 백엔드에 JPA 연결, 엔티티 9개 테이블 (validate 통과)
 - [ ] 장소 수집기 (상가정보 CSV → TourAPI → 중복 제거)
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
