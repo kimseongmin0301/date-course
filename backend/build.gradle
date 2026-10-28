@@ -35,3 +35,16 @@ tasks.named('test') {
 		}
 	}
 }
+
+// 화면(frontend 의 npm run build 결과 dist/)을 jar 의 static 으로 넣어 서버 하나로 배포한다.
+// dist 가 없으면(화면을 빌드하지 않았으면) 그냥 빈 채로 넘어간다. CI 는 화면을 먼저 빌드한다
+tasks.named('processResources') {
+	from('../frontend/dist') {
+		into 'static'
+	}
+}
+
+// 배포 스크립트가 찾기 쉽게 jar 이름을 버전 없이
+tasks.named('bootJar') {
+	archiveFileName = 'date-course.jar'
+}

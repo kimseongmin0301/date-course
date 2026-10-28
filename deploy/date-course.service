@@ -1,0 +1,24 @@
+# /etc/systemd/system/date-course.service
+# 데이트코스 앱. 설정(.env)은 WorkingDirectory 에 두고, jar 는 current 링크가 가리키는 버전을 실행한다.
+# 같은 서버의 힐링룸(healing-room.service, 18280)과 DB·Redis 를 함께 쓴다.
+[Unit]
+Description=Date Course (Spring Boot)
+After=network-online.target postgresql@16-main.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=seongmin
+Group=seongmin
+WorkingDirectory=/home/seongmin/date-course/shared
+ExecStart=/home/seongmin/apps/jre17/bin/java -Xms128m -Xmx512m -jar /home/seongmin/date-course/current/date-course.jar
+# Java 는 SIGTERM 으로 끝나면 143 을 돌려준다 (정상 종료로 본다)
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

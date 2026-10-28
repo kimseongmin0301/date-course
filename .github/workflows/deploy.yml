@@ -1,0 +1,81 @@
+# main 에 푸시하면 화면·백엔드 검사와 빌드 → 운영 서버 배포
+#
+# 필요한 저장소 Secrets (Settings → Secrets and variables → Actions)
+#   DEPLOY_SSH_KEY      배포 전용 개인키. 서버에서는 deploy/ci-receive.sh 만 실행할 수 있게 묶여 있다
+#   DEPLOY_KNOWN_HOSTS  서버 SSH 호스트 키 (가짜 서버에 보내지 않도록 확인용)
+#   DEPLOY_HOST, DEPLOY_PORT, DEPLOY_USER
+# 필요한 저장소 Variables
+#   VITE_NAVER_MAP_KEY_ID  네이버 지도 Client ID (화면에 그대로 들어가는 값, 콘솔에서 도메인 제한)
+name: 배포
+
+on:
+  push:
+    branches: [main]
+    # 문서만 바꾼 푸시는 배포하지 않는다
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:   # Actions 탭에서 수동 실행
+
+# 배포가 겹치지 않게 한 번에 하나씩 (진행 중인 배포는 취소하지 않음)
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 화면 검사·빌드
+        working-directory: frontend
+        env:
+          VITE_NAVER_MAP_KEY_ID: ${{ vars.VITE_NAVER_MAP_KEY_ID }}
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: 테스트·빌드 (DB 가 필요한 통합 테스트 제외, 화면 dist 를 jar 에 넣음)
+        working-directory: backend
+        run: ./gradlew test bootJar -Pci --no-daemon --console=plain
+
+      - name: 서버로 보내고 재시작
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          release="$(TZ=Asia/Seoul date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+              -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 \
+              "$DEPLOY_USER@$DEPLOY_HOST" "deploy $release" \
+              < backend/build/libs/date-course.jar
+
+      - name: 배포 키 지우기
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

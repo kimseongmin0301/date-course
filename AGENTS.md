@@ -194,10 +194,28 @@ cd backend
 - 화면: 함수 컴포넌트, 서버 호출은 `lib/api.ts` 를 거칩니다. 색은 `index.css` 의 변수를 씁니다(다크 모드 대응).
 - 주변 코드의 스타일과 주석 밀도를 따르세요.
 
-## 9. 배포 (예정)
+## 9. 배포
 
-- 힐링룸과 같은 `ai-server`. nginx 가 `/` 는 `frontend/dist` 를, `/api` 는 `127.0.0.1:18290` 으로 넘깁니다. nginx 는 이 주소 전용 `sites-available` 파일만 다루고, 다른 서비스 설정은 건드리지 않습니다.
-- `main` 푸시 → GitHub Actions 로 테스트·빌드·배포 (경로별: `backend/**`, `frontend/**`).
+- 주소: **https://date-course.kimseongmin.co.kr** (nginx → `127.0.0.1:18290`). 힐링룸과 같은 `ai-server`(SSH 별칭), 같은 DB·Redis.
+- **jar 하나**: 화면(`frontend/dist`)을 `processResources` 가 jar 의 `static/` 에 넣고(`backend/build.gradle`), 스프링이 화면과 API 를 함께 냅니다. 화면 주소(`/search`, `/courses/{번호}`, `/saved`)로 바로 들어오면 `SpaController` 가 `index.html` 을 줍니다. jar 이름은 `date-course.jar`.
+- 서버 폴더
+  ```
+  ~/date-course/
+  ├─ releases/{날짜}-{커밋}/date-course.jar   최근 5개 보관
+  ├─ current → releases/…                     실행 중인 버전
+  ├─ shared/.env                              운영 설정 (권한 600). 힐링룸 shared/.env 의 DB_*·REDIS_* + DB_SCHEMA·REDIS_KEY_PREFIX·TOUR_API_*·server.address=127.0.0.1
+  └─ deploy/                                  저장소 deploy/ 복사본
+  ```
+- 실행: systemd `date-course` (Java: 힐링룸과 같은 `~/apps/jre17`), 로그는 `journalctl -u date-course -f`.
+- **새 버전 배포 = `main` 에 푸시** (`.github/workflows/deploy.yml`, `backend/**`·`frontend/**` 가 바뀐 푸시만): 화면 lint·build → 백엔드 테스트(`-Pci`)·bootJar → 배포 전용 키로 jar 를 보내면 서버의 `deploy/ci-receive.sh` 가 새 release 저장 → current 교체 → 재시작 → `/api/health` 확인, **실패하면 이전 버전으로 자동 복구**. Actions 탭에서 수동 실행도 됩니다.
+  - Secrets: `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`. Variables: `VITE_NAVER_MAP_KEY_ID`(화면 빌드에 들어감).
+  - 배포 전용 키는 서버 `authorized_keys` 에 `restrict,command="/home/seongmin/date-course/deploy/ci-receive.sh"` 로 묶여 **배포 말고는 아무것도 못 합니다**. 힐링룸 배포 키와 따로입니다.
+  - `deploy/ci-receive.sh` 를 고치면 서버에 직접 복사합니다: `scp deploy/ci-receive.sh ai-server:date-course/deploy/`
+  - 손으로 배포·되돌리기: 저장소 루트에서 `bash deploy/deploy.sh`, `bash deploy/deploy.sh rollback`.
+- **sudo 가 필요한 설치**(서비스 등록, 재시작 허용, nginx, 인증서)는 사람이 직접: `sudo bash ~/date-course/deploy/install-root.sh --allow-restart`. 여러 번 실행해도 안전하고, nginx 는 `nginx -t` 를 통과할 때만 적용합니다. AI 는 sudo 비밀번호를 다루지 않습니다.
+- nginx 는 **`sites-available/date-course.kimseongmin.co.kr` 파일만** 이 앱 것입니다. 힐링룸·메인 도메인 설정 파일은 건드리지 않습니다. `/assets/`(해시 붙은 화면 파일)는 30일 캐시.
+- 네이버 클라우드 콘솔 Maps Application 의 Web 서비스 URL 에 `https://date-course.kimseongmin.co.kr` 이 있어야 운영에서 지도가 뜹니다.
+- 로컬 PC 의 서버도 같은 운영 DB 를 봅니다. 스케줄러(점수 계산)가 두 번 돌아도 결과는 같지만, 오래 켜 두지는 않습니다.
 
 ## 10. 진행 상황
 
@@ -216,4 +234,5 @@ cd backend
 - [ ] 반응(저장·좋아요·다녀왔어요) API, 관리자 큐레이션
 - [x] 화면: 지도(하나만), 인기 지역·내 주변, 키워드, 코스 순위 목록·핀·동선, 코스 상세
 - [ ] 화면: 근처 대안 바꿔 끼우기, 저장·반응, 내 저장
-- [ ] 배포 (GitHub Actions, nginx, DNS)
+- [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
+- [ ] 배포: 배포 키 등록, `install-root.sh` (sudo), 첫 자동 배포
