@@ -39,7 +39,8 @@
 │     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
 │     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget), KeywordController GET /api/keywords (Redis 캐시)
-│     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal)
+│     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal),
+│     │  │                         AutoCourseService(자동 코스 다시 만들기), util/CoursePlanner(조합 규칙)·PlaceGrid(반경 찾기)
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
 │     │  └─ collector/             장소 수집 (6절 "장소 수집기")
 │     │     ├─ CollectorRunner     --collect=… 로 실행하면 웹 서버 없이 수집하고 종료
@@ -127,7 +128,9 @@ cd backend
 ./gradlew bootRun --args="--collect=tour --area=1"   # 서울만 (TourAPI areaCode)
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606"              # 상가정보 CSV 폴더 전부 (시도별 16개)
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606 --only=서울"  # 파일 이름에 '서울'이 든 것만
-./gradlew bootRun --args="--collect=keywords"        # 장소 키워드만 다시 붙이기 (규칙을 고친 뒤). tour·sbiz 수집 끝에도 저절로 돔
+./gradlew bootRun --args="--collect=keywords"        # 장소 키워드 다시 붙이기 + 자동 코스 다시 만들기 (규칙을 고친 뒤)
+./gradlew bootRun --args="--collect=courses"         # 자동 코스만 다시 만들기
+# tour·sbiz 수집이 끝나면 키워드 → 자동 코스까지 저절로 돈다
 ```
 - 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다. devtools 재시작도 꺼서, 수집 중에 다른 곳에서 빌드해도 수집이 처음부터 다시 시작되지 않습니다.
 - **중복 규칙**(`PlaceMatcher`, 두 수집기가 같이 씀): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게. **관광명소는 관광명소끼리만** 합칩니다(관광지 "인사동" 옆 가게 "인사동"이 합쳐진 적이 있음).
@@ -141,6 +144,13 @@ cd backend
   - 이름 규칙: 정리한 이름에 루프탑·와인·공방·방탈출·북카페·갤러리 같은 말이 있으면.
   - 실내외·예산은 **하나만**: 짧은 접두어 → 긴 접두어 → 이름 순으로 덮어씁니다. 실내외가 없으면 관광명소는 야외, 나머지는 실내. 예산은 음식점·카페·술집에만(값싼 업종 3만원 이하, 비싼 업종 7만원 이상, 나머지 음식점·술집 중간, 카페 낮음). 음식점은 모두 "맛집 투어".
   - id 2만 개씩 한 트랜잭션으로 그 구간의 `auto` 를 지우고 다시 넣습니다. `admin`(관리자가 붙임)은 두고, 관리자가 실내외·예산을 정한 장소에는 그 종류의 `auto` 를 넣지 않습니다. 몇 번 돌려도 결과가 같습니다.
+- **자동 코스**(`CoursePlanner`, `AutoCourseService`): 중심 장소 → (구경할 곳 하나 더) → 카페 → 식당, 3~4단계.
+  - 중심 장소: 관광명소·문화시설 (교통시설·학교·컨벤션·어린이공원·스포츠센터·카지노 등 분류와, 이름에 연도가 든 지난 행사는 뺌).
+  - 구경할 곳: 소품샵 등(꽃집·문구점 제외, "서점" 업종은 학습지·교육 업체가 섞여 있어 이름에 책방·서점·문고·북이 든 곳만), 다른 명소·문화시설, 볼링장·게임장·오락장·수상 레저, 이름으로 "이색적"이 붙은 놀거리(방탈출 등). 없으면 3단계.
+  - 거리: 단계 사이 직선 700m, 모든 단계가 중심 장소에서 1km 안. 걷는 시간 = 직선 × 1.3 ÷ 분속 67m. 머무는 시간: 명소·문화 60분(두 번째면 50), 놀거리 90/60, 소품샵 30, 카페 60, 식당 70.
+  - 후보 점수: 중심 장소와 분위기 키워드가 겹칠 때마다 +2, TourAPI 에도 있으면 +2, 체인점(같은 이름이 전국에 15곳 넘게) −3, 250m 마다 −1, 업종 점수(파스타/스테이크 +3 … 국밥·분식 −2), 중심 장소와 같은 분류의 구경거리(공원 → 공원) −1, 이미 다른 코스에 넣은 횟수마다 −0.7(명소가 몰린 인사동에서 한 찻집이 44개 코스에 들어간 적이 있음). 카페나 식당이 없으면 코스를 만들지 않습니다.
+  - 코스 키워드: 구경거리 단계의 분위기·활동 + 카페·식당의 분위기, 실내외는 중심 장소, 예산은 식당, "맛집 투어"는 식당이 TourAPI 에 있을 때만.
+  - 중심 장소마다 하나(`course_auto_anchor_idx`): 다시 만들 때 같은 id 를 고쳐 써서 반응이 이어집니다. 이번에 못 만든 예전 자동 코스는 반응이 없으면 지우고, 있으면 숨깁니다. 시도마다 장소를 메모리에 올려 조합하므로 시도 경계 너머의 카페·식당은 보지 않습니다.
 - 상가(상권)정보 CSV 는 공공데이터포털(15083033)에서 분기마다 zip 으로 받아 `data/sbiz/{기준월}/`(git 제외, 전국 1.5GB)에 풉니다. 파일은 시도별이고 UTF-8 입니다.
 
 ## 7. 코드 스타일
@@ -168,6 +178,7 @@ cd backend
 - [x] Redis 캐시 (`JsonCache`, 힐링룸 계정·`healing-room:date-course:` 키), 키워드 목록 API
 - [x] DNS `date-course` A 기록 (가비아, 서버 IP 확인), 배포는 아직
 - [x] 장소 키워드 자동으로 붙이기 (`--collect=keywords`)
-- [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
+- [x] 코스 자동 조합 (`--collect=courses`): 2026-10-29 전국 9,618개 (4단계 8,760, 3단계 858), 평균 246분, 53초
+- [ ] 순위 점수, 검색 API, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
 - [ ] 배포 (GitHub Actions, nginx, DNS)
