@@ -53,6 +53,21 @@ public class JsonCache {
         return value;
     }
 
+    /** 카운터를 1 올리고 올린 값을 준다 (처음 만들 때 ttl). Redis 가 안 되면 -1 */
+    public long increment(String key, Duration ttl) {
+        String fullKey = prefix + key;
+        try {
+            Long value = redis.opsForValue().increment(fullKey);
+            if (value != null && value == 1) {
+                redis.expire(fullKey, ttl);
+            }
+            return value == null ? -1 : value;
+        } catch (RuntimeException e) {
+            log.warn("카운터 실패 {}: {}", fullKey, e.getMessage());
+            return -1;
+        }
+    }
+
     /** 원본이 바뀌었을 때 지운다 */
     public void evict(String key) {
         try {

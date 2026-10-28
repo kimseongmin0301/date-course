@@ -88,3 +88,13 @@ export interface CourseDetail {
   keywords: string[]
   steps: StepDetail[]
 }
+
+export interface LocationResult {
+  kind: 'area' | 'place' | 'address'
+  name: string
+  detail: string | null
+  lat: number
+  lng: number
+  /** 지도에 보여줄 반경(m) 제안 */
+  radius: number
+}

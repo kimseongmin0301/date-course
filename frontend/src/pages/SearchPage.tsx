@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import KeywordPicker from '../components/KeywordPicker'
+import LocationSearch from '../components/LocationSearch'
 import { api } from '../lib/api'
 import { formatDistance, formatMinutes, parseKeywords } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
 import { distanceMeters, pinIcon, visibleRadius, zoomForRadius } from '../lib/naverMap'
-import type { CourseCard, CourseSearchResponse } from '../lib/types'
+import type { CourseCard, CourseSearchResponse, LocationResult } from '../lib/types'
 import { useMap } from '../map/context'
 
 // 검색 결과: 왼쪽 코스 순위 카드, 지도에는 코스 가운데 순위 핀. 카드를 고르면 그 코스 단계와 동선을 그린다
@@ -159,6 +160,13 @@ export default function SearchPage() {
     setParams(next, { replace: true })
   }
 
+  // 다른 지역을 찾으면 그곳에서 바로 다시 찾는다
+  function searchAt(l: LocationResult) {
+    const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(l.radius) })
+    if (keywords.length) next.set('kw', keywords.join(','))
+    navigate(`/search?${next}`)
+  }
+
   function searchHere() {
     if (!map) return
     const c = map.getCenter()
@@ -183,6 +191,7 @@ export default function SearchPage() {
         <h1>
           코스 순위 <span className="muted small">반경 {formatDistance(radius)} · {total}개</span>
         </h1>
+        <LocationSearch onPick={searchAt} />
         <KeywordPicker value={keywords} onChange={changeKeywords} compact />
       </div>
 

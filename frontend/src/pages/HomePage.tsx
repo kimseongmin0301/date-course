@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import KeywordPicker from '../components/KeywordPicker'
+import LocationSearch from '../components/LocationSearch'
 import { AREAS } from '../lib/areas'
 import { visibleRadius, zoomForRadius } from '../lib/naverMap'
 import { useMap } from '../map/context'
@@ -52,9 +53,10 @@ export default function HomePage() {
   return (
     <section className="home">
       <h1>어디서, 어떤 데이트를 할까요?</h1>
-      <p className="muted">지도를 옮겨 지역을 고르고, 분위기를 고르면 데이트 코스를 순위대로 보여드려요.</p>
+      <p className="muted">지역을 찾거나 지도를 옮겨 고르고, 분위기를 고르면 데이트 코스를 순위대로 보여드려요.</p>
 
       <h2 className="section-title">지역</h2>
+      <LocationSearch onPick={(l) => moveTo(l.lat, l.lng, l.radius)} />
       <div className="chips">
         <button type="button" className="chip" onClick={nearMe} disabled={!map || locating}>
           {locating ? '찾는 중…' : '📍 내 주변'}

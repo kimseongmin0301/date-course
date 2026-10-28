@@ -38,6 +38,8 @@
 │     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (예정: collector, admin)
 │     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
+│     │  ├─ place/ (검색)          LocationSearchController GET /api/locations, LocationSearchService(하루 캐시·Geocoding 한도),
+│     │  │                         LocationSearchRepository(시군구·동, 명소), client/NaverGeocodeClient
 │     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget), KeywordController GET /api/keywords (Redis 캐시)
 │     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal),
 │     │  │                         AutoCourseService(자동 코스 다시 만들기), util/CoursePlanner(조합 규칙)·PlaceGrid(반경 찾기),
@@ -64,7 +66,7 @@
    └─ src/
       ├─ App.tsx                   화면 주소(라우트), 전체를 MapLayout 으로 감쌈
       ├─ map/                      MapLayout(왼쪽 화면 + 오른쪽 지도, 휴대폰은 지도가 위), context.ts(useMap: 지도·지도 위 버튼 자리)
-      ├─ components/               KeywordPicker (키워드 칩: 3개까지, 실내외·예산은 하나만)
+      ├─ components/               KeywordPicker (키워드 칩: 3개까지, 실내외·예산은 하나만), LocationSearch (지역 검색창)
       ├─ types/                    naver-maps.d.ts (네이버 지도 v3 중 쓰는 것만 적은 타입)
       ├─ lib/                      api.ts(fetch 래퍼, 오류는 서버 message 그대로), types.ts(API 응답 모양), naverMap.ts(스크립트 한 번만 불러오기, 숫자 핀, 반경↔확대),
       │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표)
@@ -120,13 +122,15 @@ npm run lint
 | `healing-room:date-course:keywords` | 키워드 목록 (`GET /api/keywords`) | 24시간 |
 | `healing-room:date-course:courses:search:{위도}:{경도}:{반경}:{키워드}:{쪽}` | 코스 검색 결과 (좌표는 소수 셋째 자리 ≈100m, 키워드 정렬) | 10분 |
 | `healing-room:date-course:courses:{id}` | 코스 상세 | 1시간 |
+| `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 |
+| `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
 
 - 키는 `backend/.env` 에만 둡니다(`.env.example` 참고). **공개 저장소이므로 키·비밀번호를 코드·문서·커밋 메시지에 쓰지 않습니다.**
 - TourAPI 는 **서버(수집기)만** 부릅니다. 상가(상권)정보는 공공데이터포털에서 분기마다 CSV 파일을 받아 넣습니다(키 없음, 이용 제한 없음).
 - 화면은 우리 API 와 네이버 지도만 씁니다. 지도 키(`frontend/.env` 의 `VITE_NAVER_MAP_KEY_ID`, 스크립트 `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=…`)는 브라우저에 들어가므로 콘솔에 Web 서비스 URL 을 등록해 도메인을 제한합니다.
-- 네이버 클라우드 Maps 는 **Dynamic Map 만** 신청합니다. Static Map, Directions(길찾기), Geocoding 은 과금 대상만 늘리므로 쓰지 않습니다. 지도는 화면을 열 때 한 번만 만들고, 페이지를 옮길 때 다시 만들지 않게 합니다(호출 수 아끼기).
+- 네이버 클라우드 Maps 는 **Dynamic Map**(화면 지도, 월 600만 건 무료)과 **Geocoding**(주소 검색, 월 300만 건 무료, 서버에서만)만 신청합니다. Static Map, Directions(길찾기)는 쓰지 않습니다. Geocoding 은 Client Secret 이 필요해서 `NaverGeocodeClient` 가 서버에서만 부르고(`NAVER_MAP_CLIENT_ID`·`NAVER_MAP_CLIENT_SECRET`, 화면에 넣지 않음), 사이트 전체 하루 3,000번(`NAVER_GEOCODE_DAILY_LIMIT`)·검색어마다 하루 캐시로 무료 이용량을 넘지 않게 합니다. 지도는 화면을 열 때 한 번만 만들고, 페이지를 옮길 때 다시 만들지 않게 합니다(호출 수 아끼기).
 - 결과를 얼마나 오래 저장해도 되는지는 각 서비스 약관을 따릅니다. 리뷰·별점 수집 금지.
 
 ### 장소 수집기 (collector)
@@ -171,6 +175,7 @@ cd backend
 | GET | `/api/health` | `{ status: "ok" }` |
 | GET | `/api/keywords` | 키워드 칩 `[{ code, name, kind }]` (분위기 → 활동 → 실내외 → 예산) |
 | GET | `/api/courses?lat=&lng=&radius=&kw=&page=` | 코스 순위 목록. 지도 가운데에서 `radius`(m, 기본 3000, 500~20000) 안의 코스 가운데, `kw` 0~3개(`kw=quiet,cozy` 또는 `kw=quiet&kw=cozy`), `page` 0~9(한 쪽 20개) → `{ total, page, size, courses: [{ id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distanceMeters, keywords, matchedKeywords, steps: [{ order, role, stayMinutes, walkMinutes, placeId, name, branch, category, lat, lng }] }] }`. 국외 좌표·반경·모르는 키워드·4개 이상은 400 |
+| GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `area` 시군구·동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때). `radius` 는 지도에 보여줄 반경 제안 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
 
 ### 순위
@@ -182,7 +187,7 @@ cd backend
 ### 화면 (frontend)
 - **지도는 앱에 하나**: `MapLayout` 이 처음 한 번만 `new naver.maps.Map` 을 만들고, 화면들은 `useMap()` 으로 받아 핀·선만 그렸다 지웁니다(useEffect 정리 함수에서 `setMap(null)`). Dynamic Map 은 지도를 만들 때마다 이용 횟수가 세어지기 때문입니다.
 - 네이버 지도는 지도 칸에 `position: relative` 를 넣으므로 `.map` 은 `inset` 대신 `width/height: 100%` 로 채웁니다(처음에 높이 0 이 돼 지도가 안 보였음).
-- 지역 이름 검색(Geocoding)은 유료라 쓰지 않습니다. 지도를 옮기거나, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
+- 지역은 검색창(`LocationSearch` → `GET /api/locations`, 엔터·찾기를 누를 때만 부름), 지도 옮기기, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 화면에서 다른 지역을 고르면 바로 그곳에서 다시 찾습니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
 - 검색 화면: 순위 핀(코스 가운데) → 카드나 핀을 누르면 그 코스의 단계 핀과 동선(점선)을 그리고 지도를 맞춥니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
 
