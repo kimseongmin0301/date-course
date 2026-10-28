@@ -1,0 +1,35 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.datecourse'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	// DB 는 V1 마이그레이션을 운영 DB 에 만든 뒤 붙인다: spring-boot-starter-data-jpa, org.postgresql:postgresql
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform {
+		// CI 에서는 실제 DB 가 없으므로 통합 테스트(@Tag("integration"))를 뺀다: ./gradlew test -Pci
+		if (project.hasProperty('ci')) {
+			excludeTags 'integration'
+		}
+	}
+}

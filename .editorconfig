@@ -1,0 +1,20 @@
+# 편집기 공통 설정 (IntelliJ, VS Code 등이 자동으로 읽는다)
+# 이 프로젝트의 모든 글 파일은 UTF-8 이다. 특히 IntelliJ 는 .properties 를 기본으로 ISO-8859-1 로,
+# Windows 일부 프로그램은 .env 를 CP949 로 열어 한글 주석이 깨져 보이므로 여기서 UTF-8 로 못 박는다.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{ts,tsx,js,json,css,html}]
+indent_style = space
+indent_size = 2
+
+[*.java]
+indent_style = space
+indent_size = 4
+
+[*.bat]
+end_of_line = crlf
