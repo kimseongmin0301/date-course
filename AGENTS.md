@@ -45,10 +45,12 @@
 │     │     ├─ CollectorRunner     --collect=… 로 실행하면 웹 서버 없이 수집하고 종료
 │     │     ├─ client/             TourApiClient (areaBasedList2, 1,000개씩)
 │     │     ├─ service/            PlaceUpsertService(한 곳씩 넣기, TourAPI), TourCollector, TourItemMapper(관광타입 → 우리 분류),
-│     │     │                      SbizImporter(상가정보 CSV 를 묶어서 넣기), SbizRowMapper(업종 → 우리 분류)
+│     │     │                      SbizImporter(상가정보 CSV 를 묶어서 넣기), SbizRowMapper(업종 → 우리 분류),
+│     │     │                      PlaceKeywordTagger(장소 키워드 자동으로 다시 붙이기)
 │     │     ├─ dto/                PlaceCandidate (출처 하나에서 읽은 장소)
 │     │     └─ util/               PlaceMatcher(같은 장소 규칙), PlaceNames(정리한 이름·지점명), Geo(거리·사각형),
-│     │                            Regions(주소 → 시도·시군구), CsvLine(따옴표를 아는 CSV 한 줄 나누기)
+│     │                            Regions(주소 → 시도·시군구), CsvLine(따옴표를 아는 CSV 한 줄 나누기),
+│     │                            PlaceKeywordRules(분류·업종·이름 → 키워드)
 │     └─ global/
 │        ├─ controller/            HealthController  GET /api/health
 │        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
@@ -125,6 +127,7 @@ cd backend
 ./gradlew bootRun --args="--collect=tour --area=1"   # 서울만 (TourAPI areaCode)
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606"              # 상가정보 CSV 폴더 전부 (시도별 16개)
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606 --only=서울"  # 파일 이름에 '서울'이 든 것만
+./gradlew bootRun --args="--collect=keywords"        # 장소 키워드만 다시 붙이기 (규칙을 고친 뒤). tour·sbiz 수집 끝에도 저절로 돔
 ```
 - 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다. devtools 재시작도 꺼서, 수집 중에 다른 곳에서 빌드해도 수집이 처음부터 다시 시작되지 않습니다.
 - **중복 규칙**(`PlaceMatcher`, 두 수집기가 같이 씀): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게. **관광명소는 관광명소끼리만** 합칩니다(관광지 "인사동" 옆 가게 "인사동"이 합쳐진 적이 있음).
@@ -133,6 +136,11 @@ cd backend
 - 다른 출처에서 같은 장소를 보면 비어 있는 칸(주소·전화·사진·소개)만 채웁니다.
 - TourAPI 음식점(39) 중 분류 `FD05`(카페·전통찻집)와 cat3 `A05020900` 은 카페, 나머지는 음식점. TourAPI 는 시도·시군구 칸이 없어 주소 앞부분에서 꺼냅니다(`Regions`).
 - **시도 이름은 상가정보의 공식 이름 16개로 맞춥니다**(`Regions.canonicalSido`). TourAPI 주소는 "경남", "서울", "광주광역사" 처럼 줄이거나 틀리게 쓴 게 섞여 있어(전국 156곳) 지역 검색에서 빠졌습니다. 시도를 알 수 없는 주소("김제시 …", "닫기 …")는 건너뜁니다. 2026 년부터 전남·광주는 `전남광주통합특별시`.
+- **장소 키워드 자동으로 붙이기**(`PlaceKeywordRules`, `PlaceKeywordTagger`): 확실한 것만 붙입니다(모르면 안 붙임).
+  - 업종 규칙: `detail_category` 가 접두어로 시작하면. 상가정보는 업종 이름(노래방 → 액티비티·활기찬), TourAPI 는 분류 코드 `lclsSystm3`(`NA` 자연 → 산책·야외, `VE070600` 미술관 → 전시·조용·감성). 코드 뜻은 TourAPI `lclsSystmCode2` 로 봅니다.
+  - 이름 규칙: 정리한 이름에 루프탑·와인·공방·방탈출·북카페·갤러리 같은 말이 있으면.
+  - 실내외·예산은 **하나만**: 짧은 접두어 → 긴 접두어 → 이름 순으로 덮어씁니다. 실내외가 없으면 관광명소는 야외, 나머지는 실내. 예산은 음식점·카페·술집에만(값싼 업종 3만원 이하, 비싼 업종 7만원 이상, 나머지 음식점·술집 중간, 카페 낮음). 음식점은 모두 "맛집 투어".
+  - id 2만 개씩 한 트랜잭션으로 그 구간의 `auto` 를 지우고 다시 넣습니다. `admin`(관리자가 붙임)은 두고, 관리자가 실내외·예산을 정한 장소에는 그 종류의 `auto` 를 넣지 않습니다. 몇 번 돌려도 결과가 같습니다.
 - 상가(상권)정보 CSV 는 공공데이터포털(15083033)에서 분기마다 zip 으로 받아 `data/sbiz/{기준월}/`(git 제외, 전국 1.5GB)에 풉니다. 파일은 시도별이고 UTF-8 입니다.
 
 ## 7. 코드 스타일
@@ -158,8 +166,8 @@ cd backend
 - [x] 장소 수집기: TourAPI, 상가(상권)정보 CSV, 중복 찾기 (서울 수집: 157,301곳, 두 출처에 다 있는 곳 446, 중복 후보 217)
 - [x] 전국 수집 (2026-10-28, 상가정보 202606 + TourAPI): 920,698곳, 두 출처에 다 있는 곳 8,580, 중복 후보 973, 541MB. 상가정보 4분 46초, TourAPI 43분
 - [x] Redis 캐시 (`JsonCache`, 힐링룸 계정·`healing-room:date-course:` 키), 키워드 목록 API
-- [ ] DNS `date-course` A 기록 (가비아, 등록됨 → 서버 IP 확인), 배포는 아직
-- [ ] 장소 키워드 자동으로 붙이기
+- [x] DNS `date-course` A 기록 (가비아, 서버 IP 확인), 배포는 아직
+- [x] 장소 키워드 자동으로 붙이기 (`--collect=keywords`)
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
 - [ ] 배포 (GitHub Actions, nginx, DNS)
