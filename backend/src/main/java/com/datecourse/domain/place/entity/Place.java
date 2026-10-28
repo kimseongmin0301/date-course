@@ -89,6 +89,20 @@ public class Place {
         this.dong = dong;
     }
 
+    /** 다른 출처에서 같은 장소를 다시 봤을 때: 비어 있는 칸만 채우고, 폐업으로 봤던 장소는 되살린다 */
+    public void fillMissing(String roadAddress, String lotAddress, String phone, String imageUrl, String description) {
+        this.roadAddress = firstNonBlank(this.roadAddress, roadAddress);
+        this.lotAddress = firstNonBlank(this.lotAddress, lotAddress);
+        this.phone = firstNonBlank(this.phone, phone);
+        this.imageUrl = firstNonBlank(this.imageUrl, imageUrl);
+        this.description = firstNonBlank(this.description, description);
+        this.closedAt = null;
+    }
+
+    private static String firstNonBlank(String current, String incoming) {
+        return current != null && !current.isBlank() ? current : (incoming == null || incoming.isBlank() ? current : incoming);
+    }
+
     @PreUpdate
     void touch() {
         updatedAt = OffsetDateTime.now();

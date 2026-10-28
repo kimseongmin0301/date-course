@@ -40,7 +40,13 @@
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
 │     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget)
 │     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal)
-│     │  └─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  └─ collector/             장소 수집 (6절 "장소 수집기")
+│     │     ├─ CollectorRunner     --collect=… 로 실행하면 웹 서버 없이 수집하고 종료
+│     │     ├─ client/             TourApiClient (areaBasedList2, 1,000개씩)
+│     │     ├─ service/            PlaceUpsertService(중복 찾기·넣기), TourCollector, TourItemMapper(관광타입 → 우리 분류)
+│     │     ├─ dto/                PlaceCandidate (출처 하나에서 읽은 장소)
+│     │     └─ util/               PlaceNames(정리한 이름·지점명), Geo(거리·사각형), Regions(주소 → 시도·시군구)
 │     └─ global/
 │        ├─ controller/            HealthController  GET /api/health
 │        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
@@ -97,6 +103,18 @@ npm run lint
 - 네이버 클라우드 Maps 는 **Dynamic Map 만** 신청합니다. Static Map, Directions(길찾기), Geocoding 은 과금 대상만 늘리므로 쓰지 않습니다. 지도는 화면을 열 때 한 번만 만들고, 페이지를 옮길 때 다시 만들지 않게 합니다(호출 수 아끼기).
 - 결과를 얼마나 오래 저장해도 되는지는 각 서비스 약관을 따릅니다. 리뷰·별점 수집 금지.
 
+### 장소 수집기 (collector)
+```bash
+cd backend
+./gradlew bootRun --args="--collect=tour"            # TourAPI 전국 (관광지 12, 문화시설 14, 레포츠 28, 음식점 39)
+./gradlew bootRun --args="--collect=tour --area=1"   # 서울만 (TourAPI areaCode)
+```
+- 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다.
+- **중복 규칙**(`PlaceUpsertService`): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게.
+- 다른 출처에서 같은 장소를 보면 비어 있는 칸(주소·전화·사진·소개)만 채웁니다.
+- TourAPI 음식점(39) 중 분류 `FD05`(카페·전통찻집)와 cat3 `A05020900` 은 카페, 나머지는 음식점. TourAPI 는 시도·시군구 칸이 없어 주소 앞부분에서 꺼냅니다(`Regions`).
+- 상가(상권)정보 CSV 는 `data/sbiz/`(git 제외)에 풀어 두고 읽습니다(만드는 중).
+
 ## 7. 코드 스타일
 
 - 주석과 사용자에게 보이는 문구는 **한국어**로 씁니다.
@@ -117,7 +135,8 @@ npm run lint
 - [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
 - [x] 백엔드에 JPA 연결, 엔티티 9개 테이블 (validate 통과)
-- [ ] 장소 수집기 (상가정보 CSV → TourAPI → 중복 제거)
+- [x] 장소 수집기: TourAPI, 중복 찾기 (서울 시험 수집)
+- [ ] 장소 수집기: 상가(상권)정보 CSV, 장소 키워드 자동으로 붙이기
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
 - [ ] 배포 (GitHub Actions, nginx, DNS)

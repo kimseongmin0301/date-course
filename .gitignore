@@ -3,6 +3,9 @@
 *.env
 !.env.example
 
+# 수집용 원본 파일 (상가정보 CSV 등, 수백 MB)
+data/
+
 # 빌드 결과
 backend/build/
 backend/.gradle/

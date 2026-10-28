@@ -50,6 +50,12 @@ public class PlaceSource {
         this.lastSeenAt = OffsetDateTime.now();
     }
 
+    /** 수집에서 다시 봤다 (폐업 판단의 기준 시각) */
+    public void seen(String rawName) {
+        this.rawName = rawName;
+        this.lastSeenAt = OffsetDateTime.now();
+    }
+
     public Long getId() { return id; }
     public Place getPlace() { return place; }
     public PlaceSourceType getSource() { return source; }
