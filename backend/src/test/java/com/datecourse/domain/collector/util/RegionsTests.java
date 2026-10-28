@@ -22,4 +22,20 @@ class RegionsTests {
         assertThat(Regions.parse("세종특별자치시 한누리대로 2130")).isEqualTo(new Regions.Region("세종특별자치시", null));
         assertThat(Regions.parse(" ")).isNull();
     }
+
+    @Test
+    void 줄이거나_틀리게_쓴_시도는_공식_이름으로() {
+        assertThat(Regions.parse("경남 사천시 신수동 산34-5")).isEqualTo(new Regions.Region("경상남도", "사천시"));
+        assertThat(Regions.parse("전남광주 완도군 완도읍 장좌리")).isEqualTo(new Regions.Region("전남광주통합특별시", "완도군"));
+        assertThat(Regions.canonicalSido("광주광역사")).isEqualTo("전남광주통합특별시");
+        assertThat(Regions.canonicalSido("전라북도")).isEqualTo("전북특별자치도");
+        assertThat(Regions.canonicalSido("부산광역")).isEqualTo("부산광역시");
+        assertThat(Regions.canonicalSido("제주특별자치")).isEqualTo("제주특별자치도");
+    }
+
+    @Test
+    void 시도를_알_수_없으면_null() {
+        assertThat(Regions.parse("닫기")).isNull();
+        assertThat(Regions.parse("김제시 요촌동 1")).isNull();
+    }
 }

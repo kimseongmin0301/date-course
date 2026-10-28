@@ -38,7 +38,7 @@
 │     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (예정: collector, admin)
 │     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
-│     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget)
+│     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget), KeywordController GET /api/keywords (Redis 캐시)
 │     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal)
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
 │     │  └─ collector/             장소 수집 (6절 "장소 수집기")
@@ -52,6 +52,7 @@
 │     └─ global/
 │        ├─ controller/            HealthController  GET /api/health
 │        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
+│        ├─ cache/                 JsonCache (Redis 캐시, 5-1절)
 │        └─ util/                  LowercaseEnumConverter (enum 을 DB 에 소문자로: 각 enum 의 DbConverter 가 상속)
 └─ frontend/                       ← Vite + React 앱
    ├─ vite.config.ts               /api 를 백엔드(18290)로 넘김
@@ -97,6 +98,18 @@ npm run lint
 | `V1__init.sql` | `date_course` 스키마, place·place_source·place_merge_candidate·keyword·place_keyword·course·course_step·course_keyword·reaction | ✅ |
 | `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
 
+## 5-1. 캐시는 Redis
+
+- **캐시처럼 잠깐 들고 있다가 다시 쓰는 값(외부 API 응답, 자주 읽는 목록·순위 등)은 서버 메모리가 아니라 Redis 에 둡니다.**
+- 힐링룸과 **같은 Redis·계정**(`REDIS_*` 는 힐링룸 .env 와 같은 값, DB 1번)을 씁니다. 이 계정은 `healing-room:` 으로 시작하는 키만 쓸 수 있어서(ACL `~healing-room:*`) 이 앱의 키는 모두 **`healing-room:date-course:`** 로 시작합니다(`REDIS_KEY_PREFIX`). 힐링룸 키(`healing-room:chat:` 등)는 건드리지 않습니다.
+- 캐시는 `global/cache/JsonCache.getOrLoad(key, ttl, type, loader)` 로: 값은 JSON 문자열, **모든 캐시에 TTL**. 원본이 바뀌면 `evict(key)`.
+- `KEYS`·`FLUSHDB` 같은 전체 명령은 쓰지 않습니다(계정에서도 막혀 있음). 키를 찾을 땐 `SCAN` + `healing-room:date-course:*`.
+- Redis 가 안 돼도 서비스는 돌아갑니다: `JsonCache` 가 읽기·쓰기 실패를 로그만 남기고 loader 를 그대로 부릅니다.
+
+| 키 | 값 | 수명 |
+|---|---|---|
+| `healing-room:date-course:keywords` | 키워드 목록 (`GET /api/keywords`) | 24시간 |
+
 ## 6. 외부 API 규칙
 
 - 키는 `backend/.env` 에만 둡니다(`.env.example` 참고). **공개 저장소이므로 키·비밀번호를 코드·문서·커밋 메시지에 쓰지 않습니다.**
@@ -113,12 +126,13 @@ cd backend
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606"              # 상가정보 CSV 폴더 전부 (시도별 16개)
 ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606 --only=서울"  # 파일 이름에 '서울'이 든 것만
 ```
-- 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다.
+- 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다. devtools 재시작도 꺼서, 수집 중에 다른 곳에서 빌드해도 수집이 처음부터 다시 시작되지 않습니다.
 - **중복 규칙**(`PlaceMatcher`, 두 수집기가 같이 씀): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게. **관광명소는 관광명소끼리만** 합칩니다(관광지 "인사동" 옆 가게 "인사동"이 합쳐진 적이 있음).
 - **넣는 방식**: TourAPI(수천 곳)는 `PlaceUpsertService` 로 한 곳씩. 상가정보(시도 하나에 십만 단위)는 한 곳씩 DB 에 물으면 몇 시간이 걸려서, `SbizImporter` 가 시도의 기존 장소를 메모리에 올려 비교하고 5,000곳씩 트랜잭션·JDBC batch(`reWriteBatchedInserts`)로 넣습니다. 새 장소 id 는 시퀀스에서 1,000개씩 받아(`OVERRIDING SYSTEM VALUE`) 출처·중복 후보가 바로 가리키게 합니다.
 - **상가정보 업종 → 우리 분류**(`SbizRowMapper`): 카페(카페·빵/도넛·아이스크림/빙수), 음식점(한식·일식·중식·서양식·동남아·기타 외국 전부, 분식·치킨·피자·버거·토스트·뷔페), 술집(요리 주점·생맥주 전문, 유흥 주점 제외), 소품샵 등(기념품점·예술품·꽃집·액세서리/잡화·문구·서점·장난감·음반), 놀거리(노래방·오락장·게임장·볼링장·당구장·기타 오락 서비스·수상 레저). 나머지 업종(병원·편의점·PC방·독서실 등)은 넣지 않습니다. 열은 이름으로 찾습니다(분기마다 순서가 바뀌어도 되게).
 - 다른 출처에서 같은 장소를 보면 비어 있는 칸(주소·전화·사진·소개)만 채웁니다.
 - TourAPI 음식점(39) 중 분류 `FD05`(카페·전통찻집)와 cat3 `A05020900` 은 카페, 나머지는 음식점. TourAPI 는 시도·시군구 칸이 없어 주소 앞부분에서 꺼냅니다(`Regions`).
+- **시도 이름은 상가정보의 공식 이름 16개로 맞춥니다**(`Regions.canonicalSido`). TourAPI 주소는 "경남", "서울", "광주광역사" 처럼 줄이거나 틀리게 쓴 게 섞여 있어(전국 156곳) 지역 검색에서 빠졌습니다. 시도를 알 수 없는 주소("김제시 …", "닫기 …")는 건너뜁니다. 2026 년부터 전남·광주는 `전남광주통합특별시`.
 - 상가(상권)정보 CSV 는 공공데이터포털(15083033)에서 분기마다 zip 으로 받아 `data/sbiz/{기준월}/`(git 제외, 전국 1.5GB)에 풉니다. 파일은 시도별이고 UTF-8 입니다.
 
 ## 7. 코드 스타일
@@ -142,7 +156,9 @@ cd backend
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
 - [x] 백엔드에 JPA 연결, 엔티티 9개 테이블 (validate 통과)
 - [x] 장소 수집기: TourAPI, 상가(상권)정보 CSV, 중복 찾기 (서울 수집: 157,301곳, 두 출처에 다 있는 곳 446, 중복 후보 217)
-- [ ] 전국 수집 (TourAPI 전국, 상가정보 16개 시도)
+- [x] 전국 수집 (2026-10-28, 상가정보 202606 + TourAPI): 920,698곳, 두 출처에 다 있는 곳 8,580, 중복 후보 973, 541MB. 상가정보 4분 46초, TourAPI 43분
+- [x] Redis 캐시 (`JsonCache`, 힐링룸 계정·`healing-room:date-course:` 키), 키워드 목록 API
+- [ ] DNS `date-course` A 기록 (가비아, 등록됨 → 서버 IP 확인), 배포는 아직
 - [ ] 장소 키워드 자동으로 붙이기
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
