@@ -20,7 +20,7 @@
 | 영역 | 사용 기술 |
 |---|---|
 | 백엔드 | Java 17, Spring Boot 4.1, Gradle(wrapper), Spring Web MVC. DB 를 붙일 때 Spring Data JPA |
-| DB | PostgreSQL 16 (힐링룸과 같은 서버, 새 DB). 아직 연결 전 |
+| DB | PostgreSQL 16. 힐링룸과 **같은 DB(`healing_room`)·계정**, 테이블은 전용 스키마 **`date_course`** 에만. 앱 연결(JPA)은 아직 전 |
 | 프론트엔드 | React 19, TypeScript, Vite, react-router. 지도는 네이버 지도 JavaScript API v3 (Dynamic Map, 예정) |
 | 테스트 | JUnit 5, MockMvc, Mockito (`@WebMvcTest`, `@MockitoBean`) |
 
@@ -30,6 +30,7 @@
 /
 ├─ AGENTS.md / CLAUDE.md / README.md / .editorconfig / .gitattributes (모든 글 파일 UTF-8, 줄바꿈 LF)
 ├─ docs/기획안.md                  ← 기획 (원본은 Claude 문서, 바뀌면 함께 고침)
+├─ db/                             ← DB 스키마 SQL (수동 실행, 5절)
 ├─ backend/                        ← Spring Boot 앱 (Gradle 프로젝트 루트)
 │  ├─ .env.example                 ← 환경변수 형식 (.env 는 git 제외)
 │  └─ src/main/java/com/datecourse/
@@ -66,13 +67,21 @@ npm run lint
 - `.env` 는 `backend/.env` 에 둡니다. `spring.config.import=optional:file:.env[.properties]` 로 읽으므로 **작업 디렉터리가 `backend/` 이어야** 합니다.
 - 포트는 환경변수 `PORT` 가 있으면 그 값, 없으면 **18290** 입니다(같은 서버의 힐링룸이 18280).
 
-## 5. ⚠️ DB 규칙 (DB 를 붙인 뒤부터)
+## 5. ⚠️ DB 규칙
 
+0. **힐링룸과 DB·계정을 함께 씁니다.** 이 앱의 테이블은 모두 `date_course` 스키마에 두고, `public`(힐링룸)은 절대 건드리지 않습니다. 마이그레이션 파일은 `SET search_path TO date_course;` 로 시작하고, 앱은 `DB_SCHEMA`(`currentSchema`)로 이 스키마만 봅니다.
 1. **애플리케이션이 DB 스키마를 만들거나 바꾸면 안 됩니다.** `ddl-auto=validate`, `spring.sql.init.mode=never` 를 유지하고, Flyway·Liquibase 같은 자동 마이그레이션 도구를 넣지 않습니다.
 2. 스키마 변경은 `db/V{번호}__{설명}.sql` 을 **새 파일로 추가**하고 사람이 직접 실행합니다. 이미 실행한 파일은 고치지 않습니다.
 3. 실행할 때는 `SET lock_timeout = '5s'` 를 먼저 겁니다.
 4. 엔티티를 바꾸는 배포는 마이그레이션을 운영 DB 에 먼저 실행한 뒤 푸시합니다.
 5. 엔티티를 API 로 그대로 내보내지 말고 `record` DTO 로 바꿉니다. `open-in-view=false`.
+6. 운영 DB 는 `ssh ai-server` 에서 힐링룸의 `~/healing-room/shared/.env` 를 읽어 `psql` 로 다룹니다. 그 파일에는 Spring 설정 줄도 있어 `KEY=값` 줄만 읽습니다(`eval "$(grep -E '^[A-Z_][A-Z0-9_]*=' …)"`). 값은 출력하지 않습니다.
+
+### 마이그레이션 현황
+| 파일 | 내용 | 적용 |
+|---|---|---|
+| `V1__init.sql` | `date_course` 스키마, place·place_source·place_merge_candidate·keyword·place_keyword·course·course_step·course_keyword·reaction | ✅ |
+| `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
 
 ## 6. 외부 API 규칙
 
@@ -100,7 +109,8 @@ npm run lint
 - [x] 기획안 (`docs/기획안.md`)
 - [x] 뼈대: 백엔드(헬스 체크), 프론트(화면 주소, 서버 연결 확인)
 - [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
-- [ ] DB 생성, V1 마이그레이션 (장소·코스·키워드·반응)
+- [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
+- [ ] 백엔드에 JPA 연결, 엔티티
 - [ ] 장소 수집기 (상가정보 CSV → TourAPI → 중복 제거)
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
