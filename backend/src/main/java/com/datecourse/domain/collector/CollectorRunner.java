@@ -15,6 +15,7 @@ import com.datecourse.domain.collector.service.PlaceKeywordTagger;
 import com.datecourse.domain.collector.service.SbizImporter;
 import com.datecourse.domain.collector.service.TourCollector;
 import com.datecourse.domain.course.service.AutoCourseService;
+import com.datecourse.domain.course.service.CourseScoreService;
 
 /**
  * 장소 수집을 명령으로 돌린다 (웹 서버 없이 실행하고 끝나면 종료).
@@ -23,8 +24,9 @@ import com.datecourse.domain.course.service.AutoCourseService;
  *   ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606"              상가정보 CSV 폴더 전부
  *   ./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606 --only=서울"  파일 이름에 '서울'이 든 것만
  *   ./gradlew bootRun --args="--collect=keywords"        장소 키워드 다시 붙이기 + 자동 코스 다시 만들기 (규칙을 고친 뒤)
- *   ./gradlew bootRun --args="--collect=courses"         자동 코스만 다시 만들기
- * tour·sbiz 수집이 끝나면 키워드와 자동 코스도 다시 만든다.
+ *   ./gradlew bootRun --args="--collect=courses"         자동 코스 다시 만들기 + 순위 점수
+ *   ./gradlew bootRun --args="--collect=scores"          코스 순위 점수만 다시 계산 (매일 새벽에도 저절로 돔)
+ * tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 다시 만든다.
  */
 @Component
 public class CollectorRunner implements ApplicationRunner {
@@ -35,14 +37,16 @@ public class CollectorRunner implements ApplicationRunner {
     private final SbizImporter sbiz;
     private final PlaceKeywordTagger tagger;
     private final AutoCourseService courses;
+    private final CourseScoreService scores;
     private final ConfigurableApplicationContext context;
 
     public CollectorRunner(TourCollector tour, SbizImporter sbiz, PlaceKeywordTagger tagger, AutoCourseService courses,
-                           ConfigurableApplicationContext context) {
+                           CourseScoreService scores, ConfigurableApplicationContext context) {
         this.tour = tour;
         this.sbiz = sbiz;
         this.tagger = tagger;
         this.courses = courses;
+        this.scores = scores;
         this.context = context;
     }
 
@@ -78,9 +82,10 @@ public class CollectorRunner implements ApplicationRunner {
                     afterPlacesChanged();
                 }
                 case "keywords" -> afterPlacesChanged();
-                case "courses" -> courses.rebuildAll();
+                case "courses" -> rebuildCourses();
+                case "scores" -> scores.recalculate();
                 default -> {
-                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses)", what.get(0));
+                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores)", what.get(0));
                     exitCode = 2;
                 }
             }
@@ -95,7 +100,12 @@ public class CollectorRunner implements ApplicationRunner {
     /** 장소가 바뀌면 키워드를 다시 붙이고, 그 키워드로 자동 코스를 다시 만든다 */
     private void afterPlacesChanged() {
         tagger.tagAll();
+        rebuildCourses();
+    }
+
+    private void rebuildCourses() {
         courses.rebuildAll();
+        scores.recalculate();
     }
 
     private static Integer intOption(ApplicationArguments args, String name) {
