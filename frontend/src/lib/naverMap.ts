@@ -28,8 +28,8 @@ export function loadNaverMaps(): Promise<typeof naver.maps> {
   return loading
 }
 
-/** 숫자 핀 (코스 순위, 단계 순서). variant: 'rank' 순위, 'dim' 흐리게, 'step' 단계 */
-export function pinIcon(label: string | number, variant: 'rank' | 'dim' | 'step' | 'active' = 'rank'): naver.maps.HtmlIcon {
+/** 숫자 핀 (코스 순위, 단계 순서). variant: 'rank' 순위, 'dim' 흐리게, 'step' 단계, 'target' 검색으로 고른 곳 */
+export function pinIcon(label: string | number, variant: 'rank' | 'dim' | 'step' | 'target' = 'rank'): naver.maps.HtmlIcon {
   return {
     content: `<div class="pin pin-${variant}">${label}</div>`,
     anchor: new naver.maps.Point(15, 15),
@@ -38,6 +38,7 @@ export function pinIcon(label: string | number, variant: 'rank' | 'dim' | 'step'
 
 /** 반경(m)이 화면에 다 들어오는 정도의 확대 단계 */
 export function zoomForRadius(radius: number): number {
+  if (radius <= 600) return 16
   if (radius <= 1000) return 15
   if (radius <= 2000) return 14
   if (radius <= 4000) return 13
@@ -60,4 +61,10 @@ export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: n
   const dLng = (lng2 - lng1) * rad
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2
   return 2 * 6371000 * Math.asin(Math.sqrt(a))
+}
+
+/** 지도를 그 자리·확대로 바로 옮긴다 (morph 애니메이션은 탭이 뒤에 있으면 확대가 덜 된 채 멈추는 일이 있어서) */
+export function jumpTo(map: naver.maps.Map, lat: number, lng: number, zoom: number) {
+  map.setZoom(zoom, false)
+  map.setCenter(new naver.maps.LatLng(lat, lng))
 }

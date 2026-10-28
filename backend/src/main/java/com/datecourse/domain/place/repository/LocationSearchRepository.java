@@ -57,7 +57,7 @@ public class LocationSearchRepository {
                 .query((rs, n) -> {
                     String address = rs.getString("road_address") != null ? rs.getString("road_address") : rs.getString("lot_address");
                     String detail = address != null ? address : rs.getString("sido") + " " + rs.getString("sigungu");
-                    return new LocationResult("place", rs.getString("name"), detail, rs.getDouble("lat"), rs.getDouble("lng"), 1500);
+                    return new LocationResult("place", rs.getString("name"), detail, rs.getDouble("lat"), rs.getDouble("lng"), 500);
                 })
                 .list();
     }

@@ -185,6 +185,11 @@ button:disabled {
   background: #2f2f3a;
 }
 
+.pin-target {
+  background: #2f6fec;
+  font-size: 11px;
+}
+
 /* ── 칩·버튼 ── */
 .chips {
   display: flex;
@@ -515,4 +520,19 @@ button:disabled {
 
 .location-name {
   font-weight: 600;
+}
+
+.location-results li > button.on {
+  background: var(--accent-soft);
+}
+
+.location-more summary {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.location-picked {
+  margin: 6px 0 0;
 }

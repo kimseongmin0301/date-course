@@ -33,7 +33,7 @@ class LocationSearchServiceTests {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setUp() {
-        given(cache.getOrLoad(any(), any(), any(), any())).willAnswer(inv -> ((Supplier<Object>) inv.getArgument(3)).get());
+        given(cache.getOrLoad(any(), any(java.util.function.Function.class), any(), any())).willAnswer(inv -> ((Supplier<Object>) inv.getArgument(3)).get());
         given(geocoder.configured()).willReturn(true);
     }
 

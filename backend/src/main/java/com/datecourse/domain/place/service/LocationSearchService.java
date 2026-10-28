@@ -29,6 +29,8 @@ public class LocationSearchService {
 
     public static final int MAX_RESULTS = 10;
     static final Duration CACHE_TTL = Duration.ofDays(1);
+    /** 못 찾은 결과는 짧게 둔다 (Geocoding 이 잠깐 안 됐거나 키를 막 넣은 경우 하루 내내 빈 결과가 나가지 않게) */
+    static final Duration EMPTY_TTL = Duration.ofMinutes(10);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final LocationSearchRepository repository;
@@ -64,7 +66,8 @@ public class LocationSearchService {
 
     public List<LocationResult> search(String query) {
         String q = clean(query);
-        return cache.getOrLoad("location:" + q, CACHE_TTL, new TypeReference<List<LocationResult>>() { }, () -> load(q));
+        return cache.getOrLoad("location:" + q, (List<LocationResult> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
+                new TypeReference<List<LocationResult>>() { }, () -> load(q));
     }
 
     private List<LocationResult> load(String q) {
@@ -77,7 +80,7 @@ public class LocationSearchService {
             for (NaverGeocodeClient.Address a : geocoder.geocode(q)) {
                 boolean hasRoad = !a.roadAddress().isEmpty();
                 result.add(new LocationResult("address", hasRoad ? a.roadAddress() : a.jibunAddress(),
-                        hasRoad ? a.jibunAddress() : null, a.lat(), a.lng(), 1000));
+                        hasRoad ? a.jibunAddress() : null, a.lat(), a.lng(), 500));
             }
         }
         return result.stream().limit(MAX_RESULTS).toList();

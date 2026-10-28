@@ -35,6 +35,11 @@ public class JsonCache {
 
     /** 캐시에 있으면 꺼내고, 없으면 loader 로 만들어 ttl 동안 넣어 둔다 */
     public <T> T getOrLoad(String key, Duration ttl, TypeReference<T> type, Supplier<T> loader) {
+        return getOrLoad(key, value -> ttl, type, loader);
+    }
+
+    /** 값에 따라 수명을 정할 때 (예: 빈 결과는 짧게: 잠깐의 오류로 하루 내내 빈 결과가 나가지 않게) */
+    public <T> T getOrLoad(String key, java.util.function.Function<T, Duration> ttlFor, TypeReference<T> type, Supplier<T> loader) {
         String fullKey = prefix + key;
         try {
             String cached = redis.opsForValue().get(fullKey);
@@ -46,7 +51,7 @@ public class JsonCache {
         }
         T value = loader.get();
         try {
-            redis.opsForValue().set(fullKey, json.writeValueAsString(value), ttl);
+            redis.opsForValue().set(fullKey, json.writeValueAsString(value), ttlFor.apply(value));
         } catch (RuntimeException e) {
             log.warn("캐시 쓰기 실패 {}: {}", fullKey, e.getMessage());
         }

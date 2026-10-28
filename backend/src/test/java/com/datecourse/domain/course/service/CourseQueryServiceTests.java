@@ -39,7 +39,7 @@ class CourseQueryServiceTests {
                 new KeywordResponse("romantic", "로맨틱", "mood"),
                 new KeywordResponse("walk", "산책", "activity"),
                 new KeywordResponse("indoor", "실내", "setting")));
-        given(cache.getOrLoad(any(), any(), any(), any())).willAnswer(inv -> ((Supplier<Object>) inv.getArgument(3)).get());
+        given(cache.getOrLoad(any(), any(java.time.Duration.class), any(), any())).willAnswer(inv -> ((Supplier<Object>) inv.getArgument(3)).get());
     }
 
     @Test

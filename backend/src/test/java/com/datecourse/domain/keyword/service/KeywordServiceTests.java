@@ -24,7 +24,7 @@ class KeywordServiceTests {
     void 분위기_활동_실내외_예산_순서로() throws Exception {
         KeywordRepository repository = mock(KeywordRepository.class);
         JsonCache cache = mock(JsonCache.class);
-        given(cache.getOrLoad(any(), any(), any(), any())).willAnswer(inv -> ((Supplier<List<KeywordResponse>>) inv.getArgument(3)).get());
+        given(cache.getOrLoad(any(), any(java.time.Duration.class), any(), any())).willAnswer(inv -> ((Supplier<List<KeywordResponse>>) inv.getArgument(3)).get());
         given(repository.findAll()).willReturn(List.of(
                 make("budget-low", KeywordKind.BUDGET, 10),
                 make("walk", KeywordKind.ACTIVITY, 10),

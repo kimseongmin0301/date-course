@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { AREAS } from '../lib/areas'
-import { visibleRadius, zoomForRadius } from '../lib/naverMap'
+import { jumpTo, visibleRadius, zoomForRadius } from '../lib/naverMap'
 import { useMap } from '../map/context'
 
 // 홈: 지도를 옮기거나 인기 지역·내 주변으로 고르고, 키워드를 골라 코스 순위로 간다
@@ -15,7 +15,7 @@ export default function HomePage() {
   const [notice, setNotice] = useState<string | null>(null)
 
   function moveTo(lat: number, lng: number, radius: number) {
-    map?.morph(new naver.maps.LatLng(lat, lng), zoomForRadius(radius))
+    if (map) jumpTo(map, lat, lng, zoomForRadius(radius))
   }
 
   function nearMe() {
@@ -44,7 +44,8 @@ export default function HomePage() {
     const params = new URLSearchParams({
       lat: c.lat().toFixed(5),
       lng: c.lng().toFixed(5),
-      r: String(visibleRadius(map)),
+      // 명소·주소를 찾아 바짝 당겨 본 뒤라도 코스는 걸어 다닐 만한 넓이(1.5km 이상)에서 찾는다
+      r: String(Math.max(1500, visibleRadius(map))),
     })
     if (keywords.length) params.set('kw', keywords.join(','))
     navigate(`/search?${params}`)

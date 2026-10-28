@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { CATEGORY_LABEL, formatMinutes, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
-import { pinIcon } from '../lib/naverMap'
+import { jumpTo, pinIcon } from '../lib/naverMap'
 import type { CourseDetail } from '../lib/types'
 import { useMap } from '../map/context'
 
@@ -49,7 +49,7 @@ export default function CoursePage() {
   }, [map, course])
 
   function focus(lat: number, lng: number) {
-    map?.morph(new naver.maps.LatLng(lat, lng), 17)
+    if (map) jumpTo(map, lat, lng, 17)
   }
 
   if (error) {

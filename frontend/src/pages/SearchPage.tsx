@@ -162,7 +162,8 @@ export default function SearchPage() {
 
   // 다른 지역을 찾으면 그곳에서 바로 다시 찾는다
   function searchAt(l: LocationResult) {
-    const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(l.radius) })
+    // 명소·주소는 반경이 좁으므로 코스는 1.5km 이상에서 찾는다 (지도는 검색 위치로 맞춘 뒤 반경에 맞게 넓어짐)
+    const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(Math.max(1500, l.radius)) })
     if (keywords.length) next.set('kw', keywords.join(','))
     navigate(`/search?${next}`)
   }

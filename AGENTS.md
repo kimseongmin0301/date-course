@@ -122,7 +122,7 @@ npm run lint
 | `healing-room:date-course:keywords` | 키워드 목록 (`GET /api/keywords`) | 24시간 |
 | `healing-room:date-course:courses:search:{위도}:{경도}:{반경}:{키워드}:{쪽}` | 코스 검색 결과 (좌표는 소수 셋째 자리 ≈100m, 키워드 정렬) | 10분 |
 | `healing-room:date-course:courses:{id}` | 코스 상세 | 1시간 |
-| `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 |
+| `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 (못 찾았으면 10분: 키를 막 넣었거나 잠깐 오류여도 하루 내내 빈 결과가 나가지 않게) |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
@@ -186,8 +186,9 @@ cd backend
 
 ### 화면 (frontend)
 - **지도는 앱에 하나**: `MapLayout` 이 처음 한 번만 `new naver.maps.Map` 을 만들고, 화면들은 `useMap()` 으로 받아 핀·선만 그렸다 지웁니다(useEffect 정리 함수에서 `setMap(null)`). Dynamic Map 은 지도를 만들 때마다 이용 횟수가 세어지기 때문입니다.
+- 지도를 옮길 때는 `morph`(애니메이션) 대신 `jumpTo`(`setZoom` + `setCenter`)를 씁니다. 탭이 뒤에 있으면 morph 가 확대를 덜 한 채 멈춥니다.
 - 네이버 지도는 지도 칸에 `position: relative` 를 넣으므로 `.map` 은 `inset` 대신 `width/height: 100%` 로 채웁니다(처음에 높이 0 이 돼 지도가 안 보였음).
-- 지역은 검색창(`LocationSearch` → `GET /api/locations`, 엔터·찾기를 누를 때만 부름), 지도 옮기기, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 화면에서 다른 지역을 고르면 바로 그곳에서 다시 찾습니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
+- 지역은 검색창(`LocationSearch` → `GET /api/locations`, 엔터·찾기를 누를 때만 부름: **첫 결과로 바로 지도를 옮기고 파란 핀**, 나머지는 "다른 곳이었나요?"에서 바꿔 고름), 지도 옮기기, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 화면에서 다른 지역을 고르면 바로 그곳에서 다시 찾습니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
 - 검색 화면: 순위 핀(코스 가운데) → 카드나 핀을 누르면 그 코스의 단계 핀과 동선(점선)을 그리고 지도를 맞춥니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
 
