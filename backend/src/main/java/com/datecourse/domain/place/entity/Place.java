@@ -90,7 +90,8 @@ public class Place {
     }
 
     /** 다른 출처에서 같은 장소를 다시 봤을 때: 비어 있는 칸만 채우고, 폐업으로 봤던 장소는 되살린다 */
-    public void fillMissing(String roadAddress, String lotAddress, String phone, String imageUrl, String description) {
+    public void fillMissing(String dong, String roadAddress, String lotAddress, String phone, String imageUrl, String description) {
+        this.dong = firstNonBlank(this.dong, dong);
         this.roadAddress = firstNonBlank(this.roadAddress, roadAddress);
         this.lotAddress = firstNonBlank(this.lotAddress, lotAddress);
         this.phone = firstNonBlank(this.phone, phone);

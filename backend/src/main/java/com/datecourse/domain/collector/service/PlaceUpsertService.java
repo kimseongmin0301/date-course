@@ -1,7 +1,6 @@
 package com.datecourse.domain.collector.service;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
@@ -9,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.datecourse.domain.collector.dto.PlaceCandidate;
 import com.datecourse.domain.collector.util.Geo;
+import com.datecourse.domain.collector.util.PlaceMatcher;
 import com.datecourse.domain.collector.util.PlaceNames;
 import com.datecourse.domain.place.entity.Place;
 import com.datecourse.domain.place.entity.PlaceMergeCandidate;
@@ -18,16 +18,13 @@ import com.datecourse.domain.place.repository.PlaceRepository;
 import com.datecourse.domain.place.repository.PlaceSourceRepository;
 
 /**
- * 출처에서 읽은 장소 하나를 넣는다.
+ * 출처에서 읽은 장소 하나를 넣는다 (TourAPI 처럼 수가 적을 때. 많으면 SbizImporter 처럼 묶어서).
  *  1) 같은 출처·같은 원본 id 를 본 적 있으면 → 마지막으로 본 시각만 고친다
- *  2) 정리한 이름이 같고 50m 안 → 같은 장소로 보고 출처만 더한다
- *  3) 그 밖에는 새 장소. 이름이 같은데 50~150m 면 중복 후보로 남겨 관리자가 정한다
+ *  2) 같은 장소 규칙(PlaceMatcher)으로 같은 장소면 → 출처만 더한다
+ *  3) 그 밖에는 새 장소. 중복 후보가 있으면 place_merge_candidate 에 남긴다
  */
 @Service
 public class PlaceUpsertService {
-
-    static final double SAME_PLACE_M = 50;
-    static final double CANDIDATE_M = 150;
 
     private final PlaceRepository places;
     private final PlaceSourceRepository sources;
@@ -51,30 +48,16 @@ public class PlaceUpsertService {
         }
 
         String normalized = PlaceNames.normalize(c.name());
-        double dLat = Geo.latDelta(CANDIDATE_M);
-        double dLng = Geo.lngDelta(CANDIDATE_M, c.lat());
+        double dLat = Geo.latDelta(PlaceMatcher.CANDIDATE_M);
+        double dLng = Geo.lngDelta(PlaceMatcher.CANDIDATE_M, c.lat());
         List<Place> sameName = places.findByNormalizedNameAndLatBetweenAndLngBetween(
                 normalized, c.lat() - dLat, c.lat() + dLat, c.lng() - dLng, c.lng() + dLng);
+        PlaceMatcher.Match match = PlaceMatcher.match(
+                sameName.stream().map(p -> new PlaceMatcher.Known(p.getId(), p.getBranch(), p.getCategory(), p.getLat(), p.getLng())).toList(),
+                c.branch(), c.category(), c.lat(), c.lng());
 
-        Place same = null;
-        Place near = null;
-        double sameDistance = Double.MAX_VALUE;
-        double nearDistance = Double.MAX_VALUE;
-        for (Place p : sameName) {
-            if (differentBranch(p.getBranch(), c.branch())) {
-                continue;
-            }
-            double d = Geo.distanceMeters(p.getLat(), p.getLng(), c.lat(), c.lng());
-            if (d <= SAME_PLACE_M && d < sameDistance) {
-                same = p;
-                sameDistance = d;
-            } else if (d <= CANDIDATE_M && d < nearDistance) {
-                near = p;
-                nearDistance = d;
-            }
-        }
-
-        if (same != null) {
+        if (match.sameId() != null) {
+            Place same = sameName.stream().filter(p -> p.getId().equals(match.sameId())).findFirst().orElseThrow();
             sources.save(new PlaceSource(same, c.source(), c.externalId(), c.rawName()));
             fill(same, c);
             return Result.MERGED;
@@ -84,23 +67,19 @@ public class PlaceUpsertService {
                 c.lat(), c.lng(), c.sido(), c.sigungu(), c.dong()));
         fill(created, c);
         sources.save(new PlaceSource(created, c.source(), c.externalId(), c.rawName()));
-        if (near != null) {
+        if (match.nearId() != null) {
+            Place near = sameName.stream().filter(p -> p.getId().equals(match.nearId())).findFirst().orElseThrow();
             Place a = near.getId() < created.getId() ? near : created;
             Place b = a == near ? created : near;
             if (!candidates.existsByPlaceAAndPlaceB(a, b)) {
-                candidates.save(new PlaceMergeCandidate(a, b, (int) Math.round(nearDistance)));
+                candidates.save(new PlaceMergeCandidate(a, b, (int) Math.round(match.nearDistance())));
             }
             return Result.CREATED_WITH_CANDIDATE;
         }
         return Result.CREATED;
     }
 
-    /** 둘 다 지점명이 있는데 다르면 다른 가게 (예: 강남점 ↔ 역삼점) */
-    static boolean differentBranch(String a, String b) {
-        return a != null && b != null && !Objects.equals(PlaceNames.normalize(a), PlaceNames.normalize(b));
-    }
-
     private static void fill(Place place, PlaceCandidate c) {
-        place.fillMissing(c.roadAddress(), c.lotAddress(), c.phone(), c.imageUrl(), c.description());
+        place.fillMissing(c.dong(), c.roadAddress(), c.lotAddress(), c.phone(), c.imageUrl(), c.description());
     }
 }

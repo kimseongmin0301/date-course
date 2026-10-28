@@ -44,9 +44,11 @@
 │     │  └─ collector/             장소 수집 (6절 "장소 수집기")
 │     │     ├─ CollectorRunner     --collect=… 로 실행하면 웹 서버 없이 수집하고 종료
 │     │     ├─ client/             TourApiClient (areaBasedList2, 1,000개씩)
-│     │     ├─ service/            PlaceUpsertService(중복 찾기·넣기), TourCollector, TourItemMapper(관광타입 → 우리 분류)
+│     │     ├─ service/            PlaceUpsertService(한 곳씩 넣기, TourAPI), TourCollector, TourItemMapper(관광타입 → 우리 분류),
+│     │     │                      SbizImporter(상가정보 CSV 를 묶어서 넣기), SbizRowMapper(업종 → 우리 분류)
 │     │     ├─ dto/                PlaceCandidate (출처 하나에서 읽은 장소)
-│     │     └─ util/               PlaceNames(정리한 이름·지점명), Geo(거리·사각형), Regions(주소 → 시도·시군구)
+│     │     └─ util/               PlaceMatcher(같은 장소 규칙), PlaceNames(정리한 이름·지점명), Geo(거리·사각형),
+│     │                            Regions(주소 → 시도·시군구), CsvLine(따옴표를 아는 CSV 한 줄 나누기)
 │     └─ global/
 │        ├─ controller/            HealthController  GET /api/health
 │        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
@@ -108,12 +110,16 @@ npm run lint
 cd backend
 ./gradlew bootRun --args="--collect=tour"            # TourAPI 전국 (관광지 12, 문화시설 14, 레포츠 28, 음식점 39)
 ./gradlew bootRun --args="--collect=tour --area=1"   # 서울만 (TourAPI areaCode)
+./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606"              # 상가정보 CSV 폴더 전부 (시도별 16개)
+./gradlew bootRun --args="--collect=sbiz --path=../data/sbiz/202606 --only=서울"  # 파일 이름에 '서울'이 든 것만
 ```
 - 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다.
-- **중복 규칙**(`PlaceUpsertService`): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게.
+- **중복 규칙**(`PlaceMatcher`, 두 수집기가 같이 씀): 같은 출처·원본 id 는 마지막으로 본 시각만 고침 → 정리한 이름(`PlaceNames.normalize`)이 같고 **50m 안**이면 같은 장소에 출처만 더함 → **50~150m** 면 새 장소 + `place_merge_candidate`(관리자가 정함). 둘 다 지점명이 있는데 다르면(강남점 ↔ 역삼점) 다른 가게. **관광명소는 관광명소끼리만** 합칩니다(관광지 "인사동" 옆 가게 "인사동"이 합쳐진 적이 있음).
+- **넣는 방식**: TourAPI(수천 곳)는 `PlaceUpsertService` 로 한 곳씩. 상가정보(시도 하나에 십만 단위)는 한 곳씩 DB 에 물으면 몇 시간이 걸려서, `SbizImporter` 가 시도의 기존 장소를 메모리에 올려 비교하고 5,000곳씩 트랜잭션·JDBC batch(`reWriteBatchedInserts`)로 넣습니다. 새 장소 id 는 시퀀스에서 1,000개씩 받아(`OVERRIDING SYSTEM VALUE`) 출처·중복 후보가 바로 가리키게 합니다.
+- **상가정보 업종 → 우리 분류**(`SbizRowMapper`): 카페(카페·빵/도넛·아이스크림/빙수), 음식점(한식·일식·중식·서양식·동남아·기타 외국 전부, 분식·치킨·피자·버거·토스트·뷔페), 술집(요리 주점·생맥주 전문, 유흥 주점 제외), 소품샵 등(기념품점·예술품·꽃집·액세서리/잡화·문구·서점·장난감·음반), 놀거리(노래방·오락장·게임장·볼링장·당구장·기타 오락 서비스·수상 레저). 나머지 업종(병원·편의점·PC방·독서실 등)은 넣지 않습니다. 열은 이름으로 찾습니다(분기마다 순서가 바뀌어도 되게).
 - 다른 출처에서 같은 장소를 보면 비어 있는 칸(주소·전화·사진·소개)만 채웁니다.
 - TourAPI 음식점(39) 중 분류 `FD05`(카페·전통찻집)와 cat3 `A05020900` 은 카페, 나머지는 음식점. TourAPI 는 시도·시군구 칸이 없어 주소 앞부분에서 꺼냅니다(`Regions`).
-- 상가(상권)정보 CSV 는 `data/sbiz/`(git 제외)에 풀어 두고 읽습니다(만드는 중).
+- 상가(상권)정보 CSV 는 공공데이터포털(15083033)에서 분기마다 zip 으로 받아 `data/sbiz/{기준월}/`(git 제외, 전국 1.5GB)에 풉니다. 파일은 시도별이고 UTF-8 입니다.
 
 ## 7. 코드 스타일
 
@@ -135,8 +141,9 @@ cd backend
 - [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
 - [x] 백엔드에 JPA 연결, 엔티티 9개 테이블 (validate 통과)
-- [x] 장소 수집기: TourAPI, 중복 찾기 (서울 시험 수집)
-- [ ] 장소 수집기: 상가(상권)정보 CSV, 장소 키워드 자동으로 붙이기
+- [x] 장소 수집기: TourAPI, 상가(상권)정보 CSV, 중복 찾기 (서울 수집: 157,301곳, 두 출처에 다 있는 곳 446, 중복 후보 217)
+- [ ] 전국 수집 (TourAPI 전국, 상가정보 16개 시도)
+- [ ] 장소 키워드 자동으로 붙이기
 - [ ] 코스 자동 조합과 순위 점수, 관리자 큐레이션
 - [ ] 화면: 지도, 키워드, 순위 목록, 코스 상세
 - [ ] 배포 (GitHub Actions, nginx, DNS)
