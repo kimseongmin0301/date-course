@@ -33,7 +33,7 @@ class CourseControllerTests {
     void 코스_순위_목록() throws Exception {
         CourseSearchRequest req = new CourseSearchRequest(37.5, 127.0, 3000, List.of("quiet"), 0);
         given(courseQueryService.normalize(37.5, 127.0, null, List.of("quiet"), null)).willReturn(req);
-        given(courseQueryService.search(req)).willReturn(new CourseSearchResponse(1, 0, 20, List.of(
+        given(courseQueryService.search(req)).willReturn(new CourseSearchResponse(1, 0, 20, 3000, false, List.of(
                 new CourseCard(7, "미술관 데이트 코스", "미술관 → 카페", "auto", "서울특별시", "종로구", 37.5, 127.0, 200, 120,
                         List.of("quiet"), List.of("quiet"), List.of()))));
 

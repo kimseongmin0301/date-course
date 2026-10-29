@@ -33,6 +33,8 @@ public class CourseQueryService {
     public static final int RADIUS_MAX = 20_000;
     public static final int KEYWORDS_MAX = 3;
     public static final int PAGE_MAX = 9;
+    /** 고른 반경에 코스가 없으면 두 배씩 넓혀 이 반경까지 찾는다 */
+    public static final int WIDEN_MAX = 10_000;
     static final Duration SEARCH_TTL = Duration.ofMinutes(10);
     static final Duration DETAIL_TTL = Duration.ofHours(1);
 
@@ -79,8 +81,14 @@ public class CourseQueryService {
 
     private CourseSearchResponse load(CourseSearchRequest req) {
         int size = CourseSearchRequest.PAGE_SIZE;
-        List<CourseQueryRepository.Row> rows = repository.search(req.latKey(), req.lngKey(), req.radius(), req.keywords(),
+        int radius = req.radius();
+        List<CourseQueryRepository.Row> rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(),
                 size, req.page() * size);
+        // 첫 쪽이 비면(근처에 코스가 없는 동네) 넓혀서라도 가까운 코스를 보여준다
+        while (rows.isEmpty() && req.page() == 0 && radius < WIDEN_MAX) {
+            radius = Math.min(radius * 2, WIDEN_MAX);
+            rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), size, 0);
+        }
         List<Long> ids = rows.stream().map(CourseQueryRepository.Row::id).toList();
         Map<Long, List<CourseQueryRepository.StepPlace>> steps = repository.steps(ids);
         Map<Long, List<String>> keywords = repository.keywords(ids);
@@ -92,7 +100,7 @@ public class CourseQueryService {
                     steps.getOrDefault(r.id(), List.of()).stream().map(CourseQueryRepository.StepPlace::summary).toList());
         }).toList();
         int total = rows.isEmpty() ? 0 : rows.get(0).total();
-        return new CourseSearchResponse(total, req.page(), size, cards);
+        return new CourseSearchResponse(total, req.page(), size, radius, radius != req.radius(), cards);
     }
 
     public CourseDetailResponse detail(long id) {

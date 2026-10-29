@@ -3,6 +3,7 @@ package com.datecourse.domain.course.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -76,6 +77,34 @@ class CourseQueryServiceTests {
         assertThat(res.courses().get(0).distanceMeters()).isEqualTo(123);
         assertThat(res.courses().get(0).matchedKeywords()).containsExactly("quiet");
         assertThat(res.courses().get(0).steps()).extracting(s -> s.name()).containsExactly("미술관");
+    }
+
+    @Test
+    void 근처에_코스가_없으면_두_배씩_넓혀_찾는다() {
+        given(repository.search(eq(37.5), eq(127.0), eq(2000), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.search(eq(37.5), eq(127.0), eq(4000), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.search(eq(37.5), eq(127.0), eq(8000), any(), anyInt(), anyInt())).willReturn(List.of(
+                new CourseQueryRepository.Row(7, "코스", "a → b", "auto", "서울특별시", "종로구", 37.5, 127.0, 200, 6000, 1)));
+        given(repository.steps(anyList())).willReturn(Map.of());
+        given(repository.keywords(anyList())).willReturn(Map.of());
+
+        CourseSearchResponse res = service.search(service.normalize(37.5, 127.0, 2000, null, null));
+
+        assertThat(res.radius()).isEqualTo(8000);
+        assertThat(res.widened()).isTrue();
+        assertThat(res.total()).isEqualTo(1);
+    }
+
+    @Test
+    void 십_km_까지_넓혀도_없으면_빈_목록() {
+        given(repository.search(anyDouble(), anyDouble(), anyInt(), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.steps(anyList())).willReturn(Map.of());
+        given(repository.keywords(anyList())).willReturn(Map.of());
+
+        CourseSearchResponse res = service.search(service.normalize(37.5, 127.0, 3000, null, null));
+
+        assertThat(res.radius()).isEqualTo(10_000);
+        assertThat(res.courses()).isEmpty();
     }
 
     @Test

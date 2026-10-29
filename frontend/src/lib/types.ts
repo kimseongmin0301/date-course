@@ -43,6 +43,9 @@ export interface CourseSearchResponse {
   total: number
   page: number
   size: number
+  /** 실제로 찾은 반경. 고른 반경에 코스가 없으면 넓혀 찾고 widened */
+  radius: number
+  widened: boolean
   courses: CourseCard[]
 }
 

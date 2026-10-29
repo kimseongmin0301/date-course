@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.datecourse.domain.collector.util.Geo;
 import com.datecourse.domain.course.util.CoursePlanner;
 import com.datecourse.domain.course.util.PlaceGrid;
 import com.datecourse.domain.place.entity.PlaceCategory;
@@ -25,6 +26,9 @@ import com.datecourse.domain.place.entity.PlaceCategory;
  * 중심 장소마다 자동 코스는 하나라서, 이미 있으면 같은 id 로 고쳐 쓴다 (반응·저장이 이어지게).
  * 이번에 못 만든 예전 자동 코스는 반응이 없으면 지우고, 있으면 숨긴다.
  * 시도 경계 너머의 카페·식당은 보지 않는다 (경계 바로 옆 명소는 후보가 조금 적다).
+ *
+ * 동네 코스: 명소 코스가 1.5km 안에 하나도 없는 동네(주거지·역세권)는 소품샵·서점·놀거리를 중심으로
+ * 같은 규칙(구경 → 카페 → 식당)으로 만든다. 약 1km 칸마다 가장 나은 구경거리 하나를 중심으로 해 본다.
  */
 @Service
 public class AutoCourseService {
@@ -62,7 +66,6 @@ public class AutoCourseService {
             List<CoursePlanner.Plan> plans = planSido(sido, franchises);
             List<Long> courseIds = tx.execute(status -> write(plans, existing, ids, keywordIds));
             made.addAll(courseIds);
-            log.info("자동 코스: {} {}개", sido, plans.size());
         }
         int[] stale = tx.execute(status -> removeStale(made));
         log.info("자동 코스 끝: {}개, 예전 코스 지움 {}·숨김 {} ({}초)", made.size(), stale[0], stale[1],
@@ -73,6 +76,7 @@ public class AutoCourseService {
     private List<CoursePlanner.Plan> planSido(String sido, Set<String> franchises) {
         PlaceGrid grid = new PlaceGrid();
         List<CoursePlanner.Spot> anchors = new ArrayList<>();
+        List<CoursePlanner.Spot> neighborhood = new ArrayList<>();
         jdbc.query("""
                 SELECT p.id, p.name, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
                        (SELECT string_agg(k.code, ',') FROM place_keyword pk JOIN keyword k ON k.id = pk.keyword_id
@@ -89,6 +93,8 @@ public class AutoCourseService {
             grid.add(spot);
             if (CoursePlanner.isAnchor(spot)) {
                 anchors.add(spot);
+            } else if (CoursePlanner.isNeighborhoodAnchor(spot)) {
+                neighborhood.add(spot);
             }
         }, sido);
         List<CoursePlanner.Plan> plans = new ArrayList<>();
@@ -96,7 +102,39 @@ public class AutoCourseService {
         for (CoursePlanner.Spot anchor : anchors) {
             CoursePlanner.plan(anchor, grid, used).ifPresent(plans::add);
         }
+        int landmark = plans.size();
+        plans.addAll(planNeighborhoods(neighborhood, plans, grid, used));
+        log.info("자동 코스: {} 명소 {}개 + 동네 {}개", sido, landmark, plans.size() - landmark);
         return plans;
+    }
+
+    /** 명소 코스가 없는 동네를 칸(약 1km)마다 채운다. 칸 안에서 가장 나은 구경거리로, 이미 1.5km 안에 코스가 있으면 건너뛴다 */
+    private static List<CoursePlanner.Plan> planNeighborhoods(List<CoursePlanner.Spot> candidates, List<CoursePlanner.Plan> existing,
+                                                             PlaceGrid grid, Map<Long, Integer> used) {
+        Map<Long, CoursePlanner.Spot> bestPerCell = new java.util.TreeMap<>();
+        for (CoursePlanner.Spot s : candidates) {
+            long cell = PlaceGrid.cellKey(s.lat(), s.lng());
+            bestPerCell.merge(cell, s, (a, b) -> {
+                int c = Double.compare(CoursePlanner.anchorRank(a), CoursePlanner.anchorRank(b));
+                return c > 0 || (c == 0 && a.id() < b.id()) ? a : b;
+            });
+        }
+        List<double[]> centers = new ArrayList<>();
+        existing.forEach(p -> centers.add(new double[] {p.centerLat(), p.centerLng()}));
+        List<CoursePlanner.Plan> made = new ArrayList<>();
+        for (CoursePlanner.Spot anchor : bestPerCell.values()) {
+            boolean covered = centers.stream().anyMatch(c ->
+                    Math.abs(c[0] - anchor.lat()) < 0.02
+                            && Geo.distanceMeters(c[0], c[1], anchor.lat(), anchor.lng()) < CoursePlanner.NEIGHBORHOOD_GAP_M);
+            if (covered) {
+                continue;
+            }
+            CoursePlanner.plan(anchor, grid, used).ifPresent(p -> {
+                made.add(p);
+                centers.add(new double[] {p.centerLat(), p.centerLng()});
+            });
+        }
+        return made;
     }
 
     private List<Long> write(List<CoursePlanner.Plan> plans, Map<Long, Long> existing, IdAllocator ids, Map<String, Long> keywordIds) {

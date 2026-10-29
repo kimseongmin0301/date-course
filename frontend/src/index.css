@@ -536,3 +536,11 @@ button:disabled {
 .location-picked {
   margin: 6px 0 0;
 }
+
+.notice-soft {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  font-size: 0.9rem;
+}

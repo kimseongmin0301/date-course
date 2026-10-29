@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { api } from '../lib/api'
@@ -14,6 +14,8 @@ import { useMap } from '../map/context'
 // 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy
 export default function SearchPage() {
   const [params, setParams] = useSearchParams()
+  // 근처에 코스가 없어 반경을 넓혔으면 원래 반경을 기억해 안내한다
+  const widenedFrom = (useLocation().state as { widenedFrom?: number } | null)?.widenedFrom
   const navigate = useNavigate()
   const { map, overlay } = useMap()
 
@@ -54,6 +56,18 @@ export default function SearchPage() {
     api<CourseSearchResponse>(`/courses?${q}`)
       .then((res) => {
         if (cancelled) return
+        if (res.widened) {
+          // 넓힌 반경을 주소에 넣어 지도·더 보기가 같은 반경을 쓰게 한다
+          setParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('r', String(res.radius))
+              return next
+            },
+            { replace: true, state: { widenedFrom: radius } },
+          )
+          return
+        }
         setCourses(res.courses)
         setTotal(res.total)
         setPage(0)
@@ -63,7 +77,7 @@ export default function SearchPage() {
     return () => {
       cancelled = true
     }
-  }, [valid, lat, lng, radius, keywords])
+  }, [valid, lat, lng, radius, keywords, setParams])
 
   function loadMore() {
     const next = page + 1
@@ -197,6 +211,11 @@ export default function SearchPage() {
       </div>
 
       {error && <p className="notice">{error}</p>}
+      {widenedFrom && widenedFrom < radius && courses.length > 0 && (
+        <p className="notice-soft">
+          반경 {formatDistance(widenedFrom)} 안에는 아직 코스가 없어서, {formatDistance(radius)}까지 넓혀 가까운 코스를 찾았어요.
+        </p>
+      )}
       {!loading && !error && courses.length === 0 && (
         <p className="empty muted">이 근처에는 아직 코스가 없어요. 지도를 넓히거나 옮겨서 다시 찾아 주세요.</p>
       )}

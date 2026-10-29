@@ -40,6 +40,8 @@ public final class CoursePlanner {
     }
 
     static final double LEG_MAX_M = 700;
+    /** 동네 코스는 이 거리 안에 코스가 하나도 없을 때만 만든다 */
+    public static final double NEIGHBORHOOD_GAP_M = 1500;
     static final double FROM_ANCHOR_MAX_M = 1000;
     /** 같은 이름이 전국에 이만큼 넘게 있으면 체인점으로 본다 */
     public static final int FRANCHISE_MIN = 15;
@@ -88,6 +90,17 @@ public final class CoursePlanner {
             return false;
         }
         return s.detail() == null || NOT_ANCHOR.stream().noneMatch(s.detail()::startsWith);
+    }
+
+    /** 명소가 없는 동네의 중심: 소품샵·서점·데이트에 어울리는 놀거리 (구경거리 규칙과 같고, 명소·문화시설은 위에서 이미 씀) */
+    public static boolean isNeighborhoodAnchor(Spot s) {
+        return !isAnchor(s) && isSecondSpot(s);
+    }
+
+    /** 동네 코스 중심을 고를 때의 점수: 분위기 키워드가 많을수록, TourAPI 에 있으면 +2, 체인점 −3 */
+    public static double anchorRank(Spot s) {
+        long mood = s.keywords().stream().filter(MOOD::contains).count();
+        return mood + (s.tour() ? 2 : 0) - (s.franchise() ? 3 : 0);
     }
 
     /** 걸어서 걸리는 시간(분): 직선 거리에 길 굽음 1.3배, 분속 67m(시속 4km) */

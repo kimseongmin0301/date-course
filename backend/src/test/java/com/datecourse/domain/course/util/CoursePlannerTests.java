@@ -122,4 +122,28 @@ class CoursePlannerTests {
         assertThat(CoursePlanner.isSecondSpot(spot(9, "방탈출", PlaceCategory.ACTIVITY, "기타 오락관련 서비스업", 0,
                 Set.of("play", "unique"), false, false))).isTrue();
     }
+
+    @Test
+    void 동네_코스는_명소가_아닌_구경거리를_중심으로() {
+        CoursePlanner.Spot shop = spot(20, "소품샵", PlaceCategory.SHOP, "액세서리/잡화 소매업", 0, Set.of("shopping", "cozy", "indoor"), false, false);
+        CoursePlanner.Spot bowling = spot(21, "볼링장", PlaceCategory.ACTIVITY, "볼링장", 0, Set.of("play", "lively", "indoor"), false, false);
+        CoursePlanner.Spot karaoke = spot(22, "노래방", PlaceCategory.ACTIVITY, "노래방", 0, Set.of("play", "lively"), false, false);
+        assertThat(CoursePlanner.isNeighborhoodAnchor(shop)).isTrue();
+        assertThat(CoursePlanner.isNeighborhoodAnchor(bowling)).isTrue();
+        assertThat(CoursePlanner.isNeighborhoodAnchor(karaoke)).isFalse();
+        assertThat(CoursePlanner.isNeighborhoodAnchor(ANCHOR)).isFalse(); // 명소는 원래 코스로
+
+        PlaceGrid grid = new PlaceGrid();
+        grid.add(shop);
+        grid.add(spot(3, "카페", PlaceCategory.CAFE, "카페", 200, Set.of("indoor"), false, false));
+        grid.add(spot(4, "식당", PlaceCategory.RESTAURANT, "경양식", 400, Set.of("indoor", "romantic"), false, false));
+        assertThat(CoursePlanner.plan(shop, grid).orElseThrow().summary()).isEqualTo("소품샵 → 카페 → 식당");
+    }
+
+    @Test
+    void 동네_코스_중심은_체인점보다_분위기_있는_곳() {
+        CoursePlanner.Spot chain = spot(30, "체인잡화", PlaceCategory.SHOP, "액세서리/잡화 소매업", 0, Set.of("cozy"), false, true);
+        CoursePlanner.Spot local = spot(31, "동네책방", PlaceCategory.SHOP, "서점", 0, Set.of("quiet", "cozy"), false, false);
+        assertThat(CoursePlanner.anchorRank(local)).isGreaterThan(CoursePlanner.anchorRank(chain));
+    }
 }

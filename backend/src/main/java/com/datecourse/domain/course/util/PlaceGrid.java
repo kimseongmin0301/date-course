@@ -38,6 +38,11 @@ public class PlaceGrid {
         return result;
     }
 
+    /** 이 위치가 속한 칸 (동네 코스를 칸마다 하나씩 해 볼 때) */
+    public static long cellKey(double lat, double lng) {
+        return key(cell(lat), cell(lng));
+    }
+
     private static int cell(double degree) {
         return (int) Math.floor(degree / CELL);
     }
