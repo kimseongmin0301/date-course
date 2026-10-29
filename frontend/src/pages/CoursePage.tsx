@@ -441,7 +441,7 @@ export default function CoursePage() {
                 {[
                   CATEGORY_LABEL[a.place.category] ?? a.place.category,
                   a.place.detailCategory && !/^[A-Z]{2}\d/.test(a.place.detailCategory) ? a.place.detailCategory : null,
-                  kind === 'alt' ? `원래 장소에서 ${formatDistance(a.distanceMeters)}` : `${formatDistance(a.distanceMeters)} 거리`,
+                  kind === 'alt' ? `원래 장소에서 ${formatDistance(a.distanceMeters)}` : `앞 장소에서 ${formatDistance(a.distanceMeters)}`,
                 ]
                   .filter(Boolean)
                   .join(' · ')}
@@ -510,7 +510,7 @@ export default function CoursePage() {
                 <div className="step-body">
                   <h3>{r.roadAddress || r.jibunAddress}</h3>
                   <p className="muted small">
-                    {[r.roadAddress ? r.jibunAddress : null, `${formatDistance(Math.round(distanceMeters(near.lat, near.lng, r.lat, r.lng)))} 거리`]
+                    {[r.roadAddress ? r.jibunAddress : null, `앞 장소에서 ${formatDistance(Math.round(distanceMeters(near.lat, near.lng, r.lat, r.lng)))}`]
                       .filter(Boolean)
                       .join(' · ')}
                   </p>

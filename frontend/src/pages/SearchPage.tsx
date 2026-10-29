@@ -247,7 +247,7 @@ export default function SearchPage() {
               <h2>{c.title}</h2>
               <p className="steps-line">{c.steps.map((s) => s.name).join(' → ')}</p>
               <p className="meta muted">
-                {[c.sigungu, formatMinutes(c.totalMinutes), `${formatDistance(c.distanceMeters)} 거리`, c.kind === 'curated' ? '추천 코스' : null]
+                {[c.sigungu, formatMinutes(c.totalMinutes), `지도 가운데에서 ${formatDistance(c.distanceMeters)}`, c.kind === 'curated' ? '추천 코스' : null]
                   .filter(Boolean)
                   .join(' · ')}
               </p>
