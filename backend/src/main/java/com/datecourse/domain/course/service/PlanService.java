@@ -76,8 +76,16 @@ public class PlanService {
         }
     }
 
-    /** 직접 넣은 가게 */
-    record Custom(String name, String address, double lat, double lng) {
+    /** 직접 넣은 가게. source: user / naver (예전 저장분은 null = user) */
+    record Custom(String name, String address, double lat, double lng, String source) {
+
+        Custom(String name, String address, double lat, double lng) {
+            this(name, address, lat, lng, null);
+        }
+
+        boolean fromNaver() {
+            return "naver".equals(source);
+        }
     }
 
     public List<PlanSummary> list(UUID visitor) {
@@ -122,7 +130,7 @@ public class PlanService {
         plans.upsert(visitor, courseId, date, start, json.writeValueAsString(steps));
         // 직접 넣은 가게는 "이용자가 알려 준 가게"로 모은다 (실패해도 일정 저장은 그대로)
         for (Stored s : steps) {
-            if (s.custom() != null) {
+            if (s.custom() != null && !s.custom().fromNaver()) {   // 네이버 결과는 모으지 않는다
                 try {
                     suggestions.record(visitor, s.custom().name(), s.custom().address(), s.custom().lat(), s.custom().lng());
                 } catch (RuntimeException e) {
@@ -184,7 +192,7 @@ public class PlanService {
         if (c.lat() == null || c.lng() == null || !Geo.inKorea(c.lat(), c.lng())) {
             throw CourseException.badRequest("직접 넣는 가게는 국내 주소만 넣을 수 있어요.");
         }
-        return new Custom(name, address, c.lat(), c.lng());
+        return new Custom(name, address, c.lat(), c.lng(), "naver".equals(c.source()) ? "naver" : "user");
     }
 
     static String tidy(String text) {
@@ -194,7 +202,7 @@ public class PlanService {
     static PlaceResponse toPlace(Custom c) {
         Regions.Region region = Regions.parse(c.address());
         String sigungu = region == null ? null : region.sigungu();
-        return new PlaceResponse(CUSTOM_ID, c.name(), null, "custom", null, c.lat(), c.lng(),
+        return new PlaceResponse(CUSTOM_ID, c.name(), null, c.fromNaver() ? "naver" : "custom", null, c.lat(), c.lng(),
                 region == null ? null : region.sido(), sigungu, c.address(), null, null, null, null,
                 CourseQueryService.naverMapUrl(c.name(), null, sigungu));
     }
@@ -206,7 +214,8 @@ public class PlanService {
                 .filter(s -> s.custom() != null || byId.containsKey(s.placeId()))   // 장소가 DB 에서 아예 사라졌으면 뺀다
                 .map(s -> {
                     if (s.custom() != null) {
-                        return new PlanStepResponse(s.role(), s.stay(), s.fixed(), s.origin(), null, toPlace(s.custom()), List.of("직접 넣은 곳"));
+                        return new PlanStepResponse(s.role(), s.stay(), s.fixed(), s.origin(), null, toPlace(s.custom()),
+                                List.of(s.custom().fromNaver() ? CourseQueryService.NAVER : "직접 넣은 곳"));
                     }
                     CourseQueryRepository.Candidate c = byId.get(s.placeId());
                     return new PlanStepResponse(s.role(), s.stay(), s.fixed(), s.origin(), s.courseOrder(), CourseQueryService.toPlace(c),

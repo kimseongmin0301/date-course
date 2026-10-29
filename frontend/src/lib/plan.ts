@@ -44,9 +44,9 @@ export const STAY_MAX = 720
 /** 직접 넣은 가게 이름 최대 글자 수 (서버 PlanService.CUSTOM_NAME_MAX) */
 export const CUSTOM_NAME_MAX = 30
 
-/** 데이터에 없어 이름·주소로 직접 넣은 가게 (id 0, 분류 custom) */
+/** 데이터에 없어 이름·주소로 직접 넣은 가게(분류 custom)나 네이버 지역 검색에서 고른 가게(분류 naver). id 는 0 */
 export function isCustom(place: Place): boolean {
-  return place.category === 'custom'
+  return place.category === 'custom' || place.category === 'naver'
 }
 
 /** 이름과 주소 찾기로 고른 주소 → 직접 넣은 가게. 이름은 서버처럼 공백을 하나로 */
@@ -146,7 +146,13 @@ export function toRequest(plan: Plan) {
             fixedArrive: s.fixedArrive,
             origin: 'added',
             courseOrder: null,
-            custom: { name: s.place.name, address: s.place.roadAddress ?? '', lat: s.place.lat, lng: s.place.lng },
+            custom: {
+              name: s.place.name,
+              address: s.place.roadAddress ?? s.place.lotAddress ?? '',
+              lat: s.place.lat,
+              lng: s.place.lng,
+              source: s.place.category === 'naver' ? 'naver' : 'user',
+            },
           }
         : {
             placeId: s.place.id,

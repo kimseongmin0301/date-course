@@ -52,7 +52,19 @@ interface CustomForm {
 /** 지도·목록에 같이 보이는 후보 목록: 근처 대안(그 단계를 바꿈) 또는 장소 찾기(그 자리에 더함) */
 type Picker =
   | { kind: 'alt'; index: number; items: AlternativeResponse[] | null; error: string | null }
-  | { kind: 'add'; index: number; items: AlternativeResponse[] | null; error: string | null; query: string; custom: CustomForm | null }
+  | {
+      kind: 'add'
+      index: number
+      items: AlternativeResponse[] | null
+      error: string | null
+      query: string
+      custom: CustomForm | null
+      /** ours: 우리 장소 데이터, naver: 네이버 지역 검색 (우리 데이터에 없을 때) */
+      source: 'ours' | 'naver'
+    }
+
+/** 네이버 오픈 API 를 쓴 곳에 붙이는 링크 (NAVER API HUB 상표·BI 가이드) */
+const NAVER_API_HUB = 'https://www.ncloud.com/product/applicationService/NAVERAPIHUB'
 
 // 코스 상세 = 내 일정: 지도에 단계 이름표와 동선, 왼쪽에 시간표.
 // 장소 바꾸기(근처 대안)·더하기(이름으로 찾기)·빼기·순서 바꾸기, 출발 시간·머무는 시간(분)·도착 시간 고정 → 시간표.
@@ -181,7 +193,9 @@ export default function CoursePage() {
   }
 
   function openAdd(index: number) {
-    setPicker((p) => (p?.kind === 'add' && p.index === index ? null : { kind: 'add', index, items: null, error: null, query: '', custom: null }))
+    setPicker((p) =>
+      p?.kind === 'add' && p.index === index ? null : { kind: 'add', index, items: null, error: null, query: '', custom: null, source: 'ours' },
+    )
   }
 
   function searchToAdd(e: FormEvent, index: number, query: string) {
@@ -191,10 +205,27 @@ export default function CoursePage() {
     if (!q) return
     // 넣을 자리 바로 앞 장소 근처에서 찾는다 (맨 앞이면 첫 장소 근처)
     const near = plan.steps[Math.max(0, index - 1)].place
-    setPicker({ kind: 'add', index, items: null, error: null, query, custom: null })
+    setPicker({ kind: 'add', index, items: null, error: null, query, custom: null, source: 'ours' })
     api<AlternativeResponse[]>(`/places/nearby?lat=${near.lat}&lng=${near.lng}&q=${encodeURIComponent(q)}`)
-      .then((items) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items } : p)))
+      .then((items) => {
+        // 우리 데이터에 없으면 바로 네이버 지역 검색으로
+        if (items.length === 0) searchNaver(index, q)
+        else setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items } : p))
+      })
       .catch((err: Error) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, error: err.message } : p)))
+  }
+
+  /** 네이버 지역 검색 (검색어 앞에 앞 장소의 동네를 붙여 서버가 찾는다) */
+  function searchNaver(index: number, query: string) {
+    if (!plan) return
+    const q = query.trim()
+    if (!q) return
+    const near = plan.steps[Math.max(0, index - 1)].place
+    const area = [near.sido, near.sigungu].filter(Boolean).join(' ')
+    setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items: null, error: null, custom: null, source: 'naver' } : p))
+    api<AlternativeResponse[]>(`/places/naver?lat=${near.lat}&lng=${near.lng}&area=${encodeURIComponent(area)}&q=${encodeURIComponent(q)}`)
+      .then((items) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items } : p)))
+      .catch((err: Error) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items: [], error: err.message } : p)))
   }
 
   /** 직접 넣기 양식 고치기 (열려 있는 그 자리 것만) */
@@ -310,13 +341,22 @@ export default function CoursePage() {
       <ul className="alternatives">
         {picker.error && <li className="notice small">{picker.error}</li>}
         {kind === 'alt' && !picker.items && !picker.error && <li className="muted small">근처를 찾는 중…</li>}
-        {picker.items && picker.items.length === 0 && (
+        {picker.kind === 'add' && picker.source === 'naver' && !picker.items && <li className="muted small">우리 데이터에 없어 네이버에서 찾는 중…</li>}
+        {picker.kind === 'add' && picker.source === 'naver' && picker.items && picker.items.length > 0 && (
+          <li className="muted small">
+            우리 데이터에 없어 네이버 지역 검색에서 찾았어요 ·{' '}
+            <a href={NAVER_API_HUB} target="_blank" rel="noreferrer">
+              NAVER 오픈 API
+            </a>
+          </li>
+        )}
+        {picker.items && picker.items.length === 0 && (kind === 'alt' || (picker.kind === 'add' && picker.source === 'naver')) && (
           <li className="muted small">
             {kind === 'alt' ? (
               '걸어서 10분 안에 바꿀 만한 곳이 없어요.'
             ) : (
               <>
-                근처 2km 안에서 찾지 못했어요. 새로 생겼거나 공공데이터에 없는 가게일 수 있어요.
+                {!picker.error && '근처에서 찾지 못했어요. 새로 생겼거나 다른 이름으로 등록된 가게일 수 있어요.'}
                 <button type="button" className="swap-button not-found-add" onClick={() => picker.kind === 'add' && openCustom(index, picker.query)}>
                   이름과 주소로 직접 넣기
                 </button>
@@ -451,9 +491,20 @@ export default function CoursePage() {
             </form>
             {!picker.custom && pickerList(index, 'add')}
             {picker.custom ? customForm(index, picker.custom) : picker.items?.length === 0 ? null : (
-              <button type="button" className="link-button small" onClick={() => openCustom(index, picker.query)}>
-                찾는 곳이 없나요? 주소로 직접 넣기
-              </button>
+              <p className="small find-more">
+                찾는 곳이 없나요?{' '}
+                {picker.source === 'ours' && picker.items && picker.query.trim() && (
+                  <>
+                    <button type="button" className="link-button" onClick={() => searchNaver(index, picker.query)}>
+                      네이버에서 찾기
+                    </button>
+                    {' · '}
+                  </>
+                )}
+                <button type="button" className="link-button" onClick={() => openCustom(index, picker.query)}>
+                  주소로 직접 넣기
+                </button>
+              </p>
             )}
           </>
         )}
@@ -579,7 +630,9 @@ export default function CoursePage() {
                 {s.place.imageUrl && <img src={s.place.imageUrl} alt="" loading="lazy" className="step-image" />}
                 {s.place.description && <p className="description">{s.place.description}</p>}
                 <p className="muted small">{s.place.roadAddress ?? s.place.lotAddress}</p>
-                {s.place.category === 'custom' && <p className="muted small">직접 넣은 곳이라 영업 정보가 없어요. 네이버지도에서 확인해 주세요.</p>}
+                {(s.place.category === 'custom' || s.place.category === 'naver') && (
+                  <p className="muted small">우리 데이터에 없는 곳이라 영업 정보가 없어요. 네이버지도에서 확인해 주세요.</p>
+                )}
                 {s.place.phone && (
                   <p className="small">
                     <a href={`tel:${s.place.phone}`}>{s.place.phone}</a>

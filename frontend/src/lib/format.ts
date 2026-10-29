@@ -27,6 +27,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
   restaurant: '식당',
   bar: '술집',
   custom: '직접 넣은 곳',
+  naver: '네이버 지역 검색',
 }
 
 /** 검색 주소의 kw (쉼표로 이은 code) ↔ 배열 */

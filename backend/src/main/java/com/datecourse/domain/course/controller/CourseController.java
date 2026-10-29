@@ -46,6 +46,15 @@ public class CourseController {
     }
 
     /** 코스 상세 (단계별 장소). 없거나 숨긴 코스는 404 */
+    /** 네이버 지역 검색으로 가게 찾기 (우리 데이터에 없을 때). area: 검색어 앞에 붙일 동네 (앞 장소의 시군구) */
+    @GetMapping("/api/places/naver")
+    public List<AlternativeResponse> naverPlaces(@RequestParam(required = false) Double lat,
+                                                 @RequestParam(required = false) Double lng,
+                                                 @RequestParam(required = false) String area,
+                                                 @RequestParam(required = false) String q) {
+        return courseQueryService.naverPlaces(lat, lng, area, q);
+    }
+
     @GetMapping("/api/courses/{id}")
     public CourseDetailResponse detail(@PathVariable long id) {
         return courseQueryService.detail(id);

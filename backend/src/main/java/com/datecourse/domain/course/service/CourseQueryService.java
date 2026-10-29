@@ -29,6 +29,9 @@ import com.datecourse.domain.course.util.CoursePlanner;
 import com.datecourse.domain.place.entity.PlaceCategory;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
 import com.datecourse.domain.keyword.service.KeywordService;
+import com.datecourse.domain.collector.util.Regions;
+import com.datecourse.domain.place.client.NaverLocalSearchClient;
+import com.datecourse.domain.place.service.NaverPlaceSearchService;
 import com.datecourse.domain.suggestion.repository.SuggestionRepository;
 import com.datecourse.domain.suggestion.service.SuggestionService;
 import com.datecourse.global.cache.JsonCache;
@@ -52,9 +55,12 @@ public class CourseQueryService {
     private final KeywordService keywordService;
     private final JsonCache cache;
     private final SuggestionService suggestions;
+    private final NaverPlaceSearchService naver;
 
-    public CourseQueryService(CourseQueryRepository repository, KeywordService keywordService, JsonCache cache, SuggestionService suggestions) {
+    public CourseQueryService(CourseQueryRepository repository, KeywordService keywordService, JsonCache cache, SuggestionService suggestions,
+                              NaverPlaceSearchService naver) {
         this.suggestions = suggestions;
+        this.naver = naver;
         this.repository = repository;
         this.keywordService = keywordService;
         this.cache = cache;
@@ -229,6 +235,44 @@ public class CourseQueryService {
                             .map(x -> new AlternativeResponse(x.a().place(), x.a().reasons(), (int) Math.round(x.meters())))
                             .toList();
                 });
+    }
+
+    /** 네이버에서 찾은 가게는 이 거리 안만 보여준다 (검색어에 동네를 붙여도 다른 도시의 같은 이름이 섞여서) */
+    static final double NAVER_RADIUS_M = 10_000;
+    public static final String NAVER = "네이버 지역 검색";
+
+    /**
+     * 네이버 지역 검색으로 가게 찾기 (우리 데이터에 없을 때). 기준 좌표를 넘길 수 없어 검색어 앞에 동네(area: 앞 장소의 시군구)를 붙이고,
+     * (lat, lng) 에서 10km 안만 가까운 순으로. 고르면 화면이 "직접 넣은 곳"처럼 이름·주소·좌표로 일정에 넣는다 (분류 naver)
+     */
+    public List<AlternativeResponse> naverPlaces(Double lat, Double lng, String area, String query) {
+        if (lat == null || lng == null || !Geo.inKorea(lat, lng)) {
+            throw CourseException.badRequest("지도에서 국내 지역을 골라 주세요.");
+        }
+        String q = query == null ? "" : String.join(" ", query.strip().split("\\s+"));
+        String a = area == null ? "" : String.join(" ", area.strip().split("\\s+"));
+        if (q.isEmpty() || q.length() > 30 || a.length() > 30) {
+            throw CourseException.badRequest("찾을 가게나 장소 이름을 적어 주세요.");
+        }
+        String full = a.isEmpty() || q.startsWith(a) ? q : a + " " + q;
+        return naver.search(full).stream()
+                .map(i -> new Found(new AlternativeResponse(naverPlace(i), List.of(NAVER), 0), 0, Geo.distanceMeters(lat, lng, i.lat(), i.lng())))
+                .filter(x -> x.meters() <= NAVER_RADIUS_M)
+                .sorted(Comparator.comparingDouble(Found::meters))
+                .map(x -> new AlternativeResponse(x.a().place(), x.a().reasons(), (int) Math.round(x.meters())))
+                .toList();
+    }
+
+    /** 네이버 업체 → 장소 (id 0, 분류 naver). 이름은 일정 저장 규칙에 맞게 30자까지, 업종은 분류의 끝 ("카페,디저트>카페" → 카페) */
+    static PlaceResponse naverPlace(NaverLocalSearchClient.Item i) {
+        String name = i.title().length() > 30 ? i.title().substring(0, 30) : i.title();
+        String road = i.roadAddress().isBlank() ? i.address() : i.roadAddress();
+        Regions.Region region = Regions.parse(road);
+        String sigungu = region == null ? null : region.sigungu();
+        String category = i.category().contains(">") ? i.category().substring(i.category().lastIndexOf('>') + 1) : i.category();
+        return new PlaceResponse(0, name, null, "naver", category.isBlank() ? null : category, i.lat(), i.lng(),
+                region == null ? null : region.sido(), sigungu, road, i.roadAddress().isBlank() ? null : i.address(),
+                null, null, null, naverMapUrl(name, null, sigungu));
     }
 
     /** 장소 찾기 결과 하나 (우리 장소 또는 이용자가 알려 준 가게) */

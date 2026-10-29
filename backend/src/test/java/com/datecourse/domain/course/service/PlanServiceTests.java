@@ -137,6 +137,24 @@ class PlanServiceTests {
     }
 
     @Test
+    void 네이버에서_고른_가게는_이용자_제안으로_모으지_않는다() {
+        given(plans.courseExists(7)).willReturn(true);
+        given(places.placesByIds(anyList())).willReturn(List.of());
+        given(plans.find(visitor, 7)).willReturn(Optional.empty(), Optional.of(new PlanRepository.Row(7, "코스", null, null, null, 840,
+                "[{\"placeId\":null,\"role\":\"mine\",\"stay\":30,\"fixed\":null,\"origin\":\"added\",\"courseOrder\":null,"
+                        + "\"custom\":{\"name\":\"카페 높\",\"address\":\"울산광역시 북구 정자1길 111\",\"lat\":35.62,\"lng\":129.44,\"source\":\"naver\"}}]",
+                OffsetDateTime.now())));
+
+        PlanResponse read = service.save(visitor, 7, new PlanSaveRequest(null, "14:00", List.of(new PlanStepRequest(null, "mine", 30, null, "added", null,
+                new CustomPlaceRequest("카페 높", "울산광역시 북구 정자1길 111", 35.62, 129.44, "naver")))));
+
+        verify(suggestions, never()).record(any(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble());
+        assertThat(read.steps().get(0).place().category()).isEqualTo("naver");
+        assertThat(read.steps().get(0).reasons()).containsExactly(CourseQueryService.NAVER);
+    }
+
+    @Test
     void 직접_넣는_가게는_이름과_국내_좌표가_있어야_한다() {
         assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("", "주소", 37.5, 127.0))).isInstanceOf(CourseException.class);
         assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("가".repeat(31), "주소", 37.5, 127.0))).isInstanceOf(CourseException.class);

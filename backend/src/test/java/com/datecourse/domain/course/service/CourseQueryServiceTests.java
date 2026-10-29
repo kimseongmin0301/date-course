@@ -31,7 +31,8 @@ class CourseQueryServiceTests {
     KeywordService keywordService = mock(KeywordService.class);
     JsonCache cache = mock(JsonCache.class);
     com.datecourse.domain.suggestion.service.SuggestionService suggestions = mock(com.datecourse.domain.suggestion.service.SuggestionService.class);
-    CourseQueryService service = new CourseQueryService(repository, keywordService, cache, suggestions);
+    com.datecourse.domain.place.service.NaverPlaceSearchService naver = mock(com.datecourse.domain.place.service.NaverPlaceSearchService.class);
+    CourseQueryService service = new CourseQueryService(repository, keywordService, cache, suggestions, naver);
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -212,6 +213,27 @@ class CourseQueryServiceTests {
         assertThat(found).extracting(a -> a.place().name()).containsExactly("카페 높", "블루", "동네카페");
         assertThat(found.get(0).place().category()).isEqualTo("custom");
         assertThat(found.get(0).reasons()).containsExactly(CourseQueryService.SUGGESTED);
+    }
+
+    @Test
+    void 네이버에서_찾을_때는_동네를_붙이고_10km_안만_가까운_순() {
+        var near = new com.datecourse.domain.place.client.NaverLocalSearchClient.Item("카페 높", "카페,디저트>카페",
+                "울산광역시 북구 정자동 434-14", "울산광역시 북구 정자1길 111", 37.5 + 300 / 111_320.0, 127.0);
+        var nearer = new com.datecourse.domain.place.client.NaverLocalSearchClient.Item("카페 높 2호점", "카페,디저트>카페",
+                "", "울산광역시 북구 정자1길 1", 37.5 + 100 / 111_320.0, 127.0);
+        var far = new com.datecourse.domain.place.client.NaverLocalSearchClient.Item("카페 높", "카페", "", "부산광역시 중구 1", 35.1, 129.0);
+        given(naver.search("울산광역시 북구 카페 높")).willReturn(List.of(near, far, nearer));
+
+        var found = service.naverPlaces(37.5, 127.0, "울산광역시  북구", " 카페  높 ");
+
+        assertThat(found).extracting(a -> a.place().name()).containsExactly("카페 높 2호점", "카페 높");
+        var p = found.get(1).place();
+        assertThat(p.category()).isEqualTo("naver");
+        assertThat(p.detailCategory()).isEqualTo("카페");
+        assertThat(p.roadAddress()).isEqualTo("울산광역시 북구 정자1길 111");
+        assertThat(p.sigungu()).isEqualTo("북구");
+        assertThat(found.get(1).reasons()).containsExactly(CourseQueryService.NAVER);
+        assertThat(found.get(1).distanceMeters()).isBetween(295, 305);
     }
 
     @Test
