@@ -81,7 +81,8 @@ public class AutoCourseService {
                 SELECT p.id, p.name, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
                        (SELECT string_agg(k.code, ',') FROM place_keyword pk JOIN keyword k ON k.id = pk.keyword_id
                         WHERE pk.place_id = p.id) AS codes,
-                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge
                 FROM place p
                 WHERE p.sido = ? AND p.closed_at IS NULL AND p.category <> 'bar'""", rs -> {
             String codes = rs.getString("codes");
@@ -89,7 +90,8 @@ public class AutoCourseService {
             CoursePlanner.Spot spot = new CoursePlanner.Spot(rs.getLong("id"), rs.getString("name"), normalized,
                     PlaceCategory.valueOf(rs.getString("category").toUpperCase()), rs.getString("detail_category"),
                     rs.getDouble("lat"), rs.getDouble("lng"), rs.getString("sido"), rs.getString("sigungu"),
-                    codes == null ? Set.of() : Set.of(codes.split(",")), rs.getBoolean("tour"), franchises.contains(normalized));
+                    codes == null ? Set.of() : Set.of(codes.split(",")), rs.getBoolean("tour"), franchises.contains(normalized),
+                    rs.getBoolean("badge"));
             grid.add(spot);
             if (CoursePlanner.isAnchor(spot)) {
                 anchors.add(spot);

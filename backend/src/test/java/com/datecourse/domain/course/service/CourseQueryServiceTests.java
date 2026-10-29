@@ -68,7 +68,7 @@ class CourseQueryServiceTests {
                 new CourseQueryRepository.Row(7, "미술관 데이트 코스", "미술관 → 카페", "auto", "서울특별시", "종로구",
                         37.5, 127.0, 200, 123.4, 1)));
         given(repository.steps(anyList())).willReturn(Map.of(7L, List.of(new CourseQueryRepository.StepPlace(7, 1, "spot", 60, null, null,
-                11, "미술관", null, "culture", "VE070600", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null))));
+                11, "미술관", null, "culture", "VE070600", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null, true, false, false, false))));
         given(repository.keywords(anyList())).willReturn(Map.of(7L, List.of("quiet", "romantic", "indoor")));
 
         CourseSearchResponse res = service.search(service.normalize(37.5, 127.0, null, List.of("walk", "quiet"), null));
@@ -117,5 +117,19 @@ class CourseQueryServiceTests {
     void 네이버지도_검색_주소() {
         assertThat(CourseQueryService.naverMapUrl("롤링파스타", "가로수길점", "강남구"))
                 .isEqualTo("https://map.naver.com/p/search/%EB%A1%A4%EB%A7%81%ED%8C%8C%EC%8A%A4%ED%83%80%20%EA%B0%80%EB%A1%9C%EC%88%98%EA%B8%B8%EC%A0%90%20%EA%B0%95%EB%82%A8%EA%B5%AC");
+    }
+
+    @Test
+    void 고른_이유는_아는_사실만() {
+        CourseQueryRepository.StepPlace local = new CourseQueryRepository.StepPlace(7, 3, "meal", 70, 4, null, 12, "동네식당", null,
+                "restaurant", "경양식", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null, false, true, true, false);
+        CourseQueryRepository.StepPlace museum = new CourseQueryRepository.StepPlace(7, 1, "spot", 60, null, null, 11, "미술관", null,
+                "culture", "VE070600", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null, true, true, false, false);
+        CourseQueryRepository.StepPlace chain = new CourseQueryRepository.StepPlace(7, 2, "cafe", 60, 4, null, 13, "체인카페", null,
+                "cafe", "카페", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null, false, true, false, true);
+
+        assertThat(CourseQueryService.reasons(local)).containsExactly("모범음식점", "체인 아닌 동네 가게");
+        assertThat(CourseQueryService.reasons(museum)).containsExactly("관광공사·상가정보 모두 확인");
+        assertThat(CourseQueryService.reasons(chain)).isEmpty();
     }
 }

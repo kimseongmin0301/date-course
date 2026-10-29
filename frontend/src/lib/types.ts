@@ -74,6 +74,8 @@ export interface StepDetail {
   walkMinutes: number | null
   memo: string | null
   place: Place
+  /** 이 장소를 고른 이유 (모범음식점, 관광공사 소개, 체인 아닌 동네 가게) */
+  reasons: string[]
 }
 
 export interface CourseDetail {

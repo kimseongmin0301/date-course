@@ -544,3 +544,25 @@ button:disabled {
   background: var(--accent-soft);
   font-size: 0.9rem;
 }
+
+.reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+
+.reason {
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: #e7f5ec;
+  color: #1f7a45;
+}
+
+@media (prefers-color-scheme: dark) {
+  .reason {
+    background: #1d3326;
+    color: #7fd3a1;
+  }
+}

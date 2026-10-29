@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
  *   사용자 반응     10 × ln(1 + 점수). 다녀왔어요 5, 저장 3, 좋아요 1, 90일 지난 반응은 0.3배
  *   동선            10 × (1 − 단계 사이 평균 걷는 시간 ÷ 15분), 0 아래로는 안 감
  *   출처 일치       10 × (상가정보와 TourAPI 에 모두 있는 단계 비율)
+ *   지정 업체       10 × (모범음식점 등 공공기관이 지정한 단계 비율)
  *   단계 수         4단계면 +2
  * 반응은 계속 쌓이므로 매일 새벽에 한 번, 자동 코스를 다시 만든 뒤에 한 번 돌린다.
  */
@@ -38,12 +39,15 @@ public class CourseScoreService {
                                 + 10 * ln(1 + COALESCE(r.points, 0))
                                 + 10 * greatest(0, 1 - COALESCE(l.avg_walk, 15) / 15.0)
                                 + 10 * COALESCE(l.both_share, 0)
+                                + 10 * COALESCE(l.badge_share, 0)
                                 + (CASE WHEN l.steps >= 4 THEN 2 ELSE 0 END))::numeric, 3)::double precision AS score
                     FROM course c2
                     LEFT JOIN (
                         SELECT cs.course_id, avg(cs.walk_minutes) AS avg_walk, count(*) AS steps,
                                avg(CASE WHEN (SELECT count(DISTINCT s.source) FROM place_source s WHERE s.place_id = cs.place_id) = 2
-                                        THEN 1.0 ELSE 0 END) AS both_share
+                                        THEN 1.0 ELSE 0 END) AS both_share,
+                               avg(CASE WHEN EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = cs.place_id)
+                                        THEN 1.0 ELSE 0 END) AS badge_share
                         FROM course_step cs GROUP BY cs.course_id
                     ) l ON l.course_id = c2.id
                     LEFT JOIN (

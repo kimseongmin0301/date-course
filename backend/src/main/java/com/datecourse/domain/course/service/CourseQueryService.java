@@ -3,6 +3,7 @@ package com.datecourse.domain.course.service;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -107,13 +108,32 @@ public class CourseQueryService {
         return cache.getOrLoad("courses:" + id, DETAIL_TTL, new TypeReference<CourseDetailResponse>() { }, () -> {
             CourseQueryRepository.Detail c = repository.detail(id).orElseThrow(CourseException::notFound);
             List<StepDetail> steps = repository.steps(List.of(id)).getOrDefault(id, List.of()).stream()
-                    .map(s -> new StepDetail(s.order(), s.role(), s.stayMinutes(), s.walkMinutes(), s.memo(), toPlace(s)))
+                    .map(s -> new StepDetail(s.order(), s.role(), s.stayMinutes(), s.walkMinutes(), s.memo(), toPlace(s), reasons(s)))
                     .toList();
             return new CourseDetailResponse(c.id(), c.title(), c.summary(), c.kind(), c.sido(), c.sigungu(),
                     c.centerLat(), c.centerLng(), c.totalMinutes(), c.budgetMin(), c.budgetMax(),
                     repository.keywords(List.of(id)).getOrDefault(id, List.of()), steps);
         });
     }
+
+    /** 이 장소를 고른 이유 (화면에 작은 표시로). 리뷰·별점이 없으므로 우리가 아는 사실만 쓴다 */
+    static List<String> reasons(CourseQueryRepository.StepPlace s) {
+        List<String> reasons = new ArrayList<>();
+        if (s.badge()) {
+            reasons.add("모범음식점");
+        }
+        if (s.tour() && s.sbiz()) {
+            reasons.add("관광공사·상가정보 모두 확인");
+        } else if (s.tour()) {
+            reasons.add("관광공사 소개");
+        }
+        if (!s.franchise() && LOCAL_SHOP.contains(s.category())) {
+            reasons.add("체인 아닌 동네 가게");
+        }
+        return reasons;
+    }
+
+    private static final Set<String> LOCAL_SHOP = Set.of("cafe", "restaurant", "shop", "bar");
 
     static PlaceResponse toPlace(CourseQueryRepository.StepPlace s) {
         return new PlaceResponse(s.placeId(), s.name(), s.branch(), s.category(), s.detailCategory(), s.lat(), s.lng(),

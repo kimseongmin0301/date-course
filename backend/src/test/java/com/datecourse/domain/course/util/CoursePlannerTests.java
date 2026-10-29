@@ -19,7 +19,12 @@ class CoursePlannerTests {
     static CoursePlanner.Spot spot(long id, String name, PlaceCategory category, String detail, double northMeters,
                                    Set<String> keywords, boolean tour, boolean franchise) {
         return new CoursePlanner.Spot(id, name, name, category, detail, LAT + northMeters / 111_320, LNG,
-                "서울특별시", "강남구", keywords, tour, franchise);
+                "서울특별시", "강남구", keywords, tour, franchise, false);
+    }
+
+    static CoursePlanner.Spot badged(CoursePlanner.Spot s) {
+        return new CoursePlanner.Spot(s.id(), s.name(), s.normalizedName(), s.category(), s.detail(), s.lat(), s.lng(),
+                s.sido(), s.sigungu(), s.keywords(), s.tour(), s.franchise(), true);
     }
 
     static final CoursePlanner.Spot ANCHOR = spot(1, "미술관", PlaceCategory.CULTURE, "VE070600", 0,
@@ -145,5 +150,15 @@ class CoursePlannerTests {
         CoursePlanner.Spot chain = spot(30, "체인잡화", PlaceCategory.SHOP, "액세서리/잡화 소매업", 0, Set.of("cozy"), false, true);
         CoursePlanner.Spot local = spot(31, "동네책방", PlaceCategory.SHOP, "서점", 0, Set.of("quiet", "cozy"), false, false);
         assertThat(CoursePlanner.anchorRank(local)).isGreaterThan(CoursePlanner.anchorRank(chain));
+    }
+
+    @Test
+    void 모범음식점을_먼저_고른다() {
+        PlaceGrid grid = new PlaceGrid();
+        grid.add(ANCHOR);
+        grid.add(spot(3, "카페", PlaceCategory.CAFE, "카페", 200, Set.of("indoor"), false, false));
+        grid.add(spot(4, "가까운식당", PlaceCategory.RESTAURANT, "백반/한정식", 250, Set.of("indoor"), false, false));
+        grid.add(badged(spot(5, "모범식당", PlaceCategory.RESTAURANT, "백반/한정식", 500, Set.of("indoor"), false, false)));
+        assertThat(CoursePlanner.plan(ANCHOR, grid).orElseThrow().steps().get(2).place().name()).isEqualTo("모범식당");
     }
 }

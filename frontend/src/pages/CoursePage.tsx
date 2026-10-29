@@ -98,6 +98,15 @@ export default function CoursePage() {
                   {s.place.name}
                   {s.place.branch && <span className="muted small"> {s.place.branch}</span>}
                 </h2>
+                {s.reasons.length > 0 && (
+                  <div className="reasons">
+                    {s.reasons.map((r) => (
+                      <span key={r} className="reason">
+                        ✓ {r}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {s.memo && <p>{s.memo}</p>}
                 {s.place.imageUrl && <img src={s.place.imageUrl} alt="" loading="lazy" className="step-image" />}
                 {s.place.description && <p className="description">{s.place.description}</p>}
@@ -116,7 +125,8 @@ export default function CoursePage() {
         ))}
       </ol>
       <p className="muted small">
-        걷는 시간은 직선 거리로 어림한 값이에요. 영업 여부는 네이버지도에서 꼭 확인해 주세요.
+        장소는 리뷰·별점 없이 공공데이터(업종·지정 정보·출처)로 골랐어요. 걷는 시간은 직선 거리로 어림한 값이고, 영업 여부는
+        네이버지도에서 꼭 확인해 주세요.
       </p>
     </section>
   )

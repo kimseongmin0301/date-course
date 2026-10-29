@@ -111,6 +111,7 @@ npm run lint
 |---|---|---|
 | `V1__init.sql` | `date_course` 스키마, place·place_source·place_merge_candidate·keyword·place_keyword·course·course_step·course_keyword·reaction | ✅ |
 | `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
+| `V3__place_badge.sql` | `place_badge` (공공기관 지정 표시: 모범음식점). 엔티티 없이 JDBC 로만 씀 | ✅ |
 
 ## 5-1. 캐시는 Redis
 

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import com.datecourse.domain.collector.util.Geo;
 import com.datecourse.domain.course.dto.StepSummary;
+import com.datecourse.domain.course.util.CoursePlanner;
 
 /**
  * 코스 검색·상세 SQL (JdbcClient). 검색 순위 = course.score(고정 부분) + 키워드 일치 + 가까움.
@@ -41,7 +42,8 @@ public class CourseQueryRepository {
     public record StepPlace(long courseId, int order, String role, Integer stayMinutes, Integer walkMinutes, String memo,
                             long placeId, String name, String branch, String category, String detailCategory,
                             double lat, double lng, String sido, String sigungu, String roadAddress, String lotAddress,
-                            String phone, String imageUrl, String description) {
+                            String phone, String imageUrl, String description,
+                            boolean tour, boolean sbiz, boolean badge, boolean franchise) {
 
         public StepSummary summary() {
             return new StepSummary(order, role, stayMinutes, walkMinutes, placeId, name, branch, category, lat, lng);
@@ -98,17 +100,24 @@ public class CourseQueryRepository {
         jdbc.sql("""
                 SELECT cs.course_id, cs.step_order, cs.role, cs.stay_minutes, cs.walk_minutes, cs.memo,
                        p.id AS place_id, p.name, p.branch, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
-                       p.road_address, p.lot_address, p.phone, p.image_url, p.description
+                       p.road_address, p.lot_address, p.phone, p.image_url, p.description,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'sbiz') AS sbiz,
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge,
+                       (SELECT count(*) FROM place p2 WHERE p2.normalized_name = p.normalized_name AND p2.closed_at IS NULL)
+                           > :franchiseMin AS franchise
                 FROM course_step cs JOIN place p ON p.id = cs.place_id
                 WHERE cs.course_id IN (:ids)
                 ORDER BY cs.course_id, cs.step_order""")
                 .param("ids", courseIds)
+                .param("franchiseMin", CoursePlanner.FRANCHISE_MIN)
                 .query((rs, n) -> new StepPlace(rs.getLong("course_id"), rs.getInt("step_order"), rs.getString("role"),
                         (Integer) rs.getObject("stay_minutes"), (Integer) rs.getObject("walk_minutes"), rs.getString("memo"),
                         rs.getLong("place_id"), rs.getString("name"), rs.getString("branch"), rs.getString("category"),
                         rs.getString("detail_category"), rs.getDouble("lat"), rs.getDouble("lng"), rs.getString("sido"),
                         rs.getString("sigungu"), rs.getString("road_address"), rs.getString("lot_address"), rs.getString("phone"),
-                        rs.getString("image_url"), rs.getString("description")))
+                        rs.getString("image_url"), rs.getString("description"),
+                        rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"), rs.getBoolean("franchise")))
                 .list()
                 .forEach(s -> result.computeIfAbsent(s.courseId(), k -> new ArrayList<>()).add(s));
         return result;

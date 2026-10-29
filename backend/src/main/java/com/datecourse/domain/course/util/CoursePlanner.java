@@ -21,15 +21,15 @@ import com.datecourse.domain.place.entity.PlaceCategory;
  *   중심 장소 → (구경할 곳 하나 더) → 카페 → 식당
  * 단계 사이는 직선 700m(걸어서 약 15분) 안, 모든 단계는 중심 장소에서 1km 안.
  * 후보는 점수로 고른다: 중심 장소와 분위기 키워드가 겹칠수록, TourAPI 에도 있는 곳(관광공사가 고른 곳),
- * 데이트에 어울리는 업종일수록 위, 전국에 같은 이름이 많은 곳(체인점)과 멀리 있는 곳은 아래.
+ * 데이트에 어울리는 업종, 모범음식점처럼 공공기관이 지정한 곳일수록 위, 전국에 같은 이름이 많은 곳(체인점)과 멀리 있는 곳은 아래.
  * 이미 다른 코스에 여러 번 넣은 곳도 조금씩 아래로 (명소가 몰린 곳에서 모든 코스가 같은 카페로 가지 않게).
  */
 public final class CoursePlanner {
 
-    /** 메모리에 올린 장소 하나 */
+    /** 메모리에 올린 장소 하나. badge: 공공기관 지정(모범음식점 등, place_badge) */
     public record Spot(long id, String name, String normalizedName, PlaceCategory category, String detail,
                        double lat, double lng, String sido, String sigungu, Set<String> keywords,
-                       boolean tour, boolean franchise) {
+                       boolean tour, boolean franchise, boolean badge) {
     }
 
     public record Step(Spot place, StepRole role, int stayMinutes, Integer walkMinutes) {
@@ -45,6 +45,8 @@ public final class CoursePlanner {
     static final double FROM_ANCHOR_MAX_M = 1000;
     /** 같은 이름이 전국에 이만큼 넘게 있으면 체인점으로 본다 */
     public static final int FRANCHISE_MIN = 15;
+    /** 모범음식점 등 공공기관이 지정한 곳 (리뷰·별점이 없어서 가장 강한 품질 신호) */
+    static final double BADGE_BONUS = 3;
 
     private static final Set<String> MOOD = Set.of("quiet", "romantic", "lively", "cozy", "unique");
     private static final Pattern TOUR_CODE = Pattern.compile("^[A-Z]{2}\\d{6}$");
@@ -166,7 +168,7 @@ public final class CoursePlanner {
 
     static double score(Spot s, double meters, Set<String> taste) {
         long sameMood = s.keywords().stream().filter(taste::contains).count();
-        return 2.0 * sameMood + (s.tour() ? 2 : 0) - (s.franchise() ? 3 : 0) - meters / 250;
+        return 2.0 * sameMood + (s.tour() ? 2 : 0) + (s.badge() ? BADGE_BONUS : 0) - (s.franchise() ? 3 : 0) - meters / 250;
     }
 
     /** 중심 장소 다음에 들를 구경거리: 소품샵 등(꽃집·문구점 제외, 서점은 이름이 서점인 곳만), 다른 명소·문화시설, 데이트에 어울리는 놀거리 */
