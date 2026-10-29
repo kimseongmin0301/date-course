@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import com.datecourse.domain.collector.util.Geo;
 import com.datecourse.domain.course.dto.StepSummary;
-import com.datecourse.domain.course.util.CoursePlanner;
+import com.datecourse.domain.place.service.FranchiseNames;
 
 /**
  * 코스 검색·상세 SQL (JdbcClient). 검색 순위 = course.score(고정 부분) + 키워드 일치 + 가까움.
@@ -27,9 +27,11 @@ public class CourseQueryRepository {
     public static final double DISTANCE_WEIGHT = 10;
 
     private final JdbcClient jdbc;
+    private final FranchiseNames franchises;
 
-    public CourseQueryRepository(JdbcClient jdbc) {
+    public CourseQueryRepository(JdbcClient jdbc, FranchiseNames franchises) {
         this.jdbc = jdbc;
+        this.franchises = franchises;
     }
 
     public record Row(long id, String title, String summary, String kind, String sido, String sigungu,
@@ -104,21 +106,18 @@ public class CourseQueryRepository {
                        p.road_address, p.lot_address, p.phone, p.image_url, p.description,
                        EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
                        EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'sbiz') AS sbiz,
-                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge,
-                       (SELECT count(*) FROM place p2 WHERE p2.normalized_name = p.normalized_name AND p2.closed_at IS NULL)
-                           > :franchiseMin AS franchise
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge, p.normalized_name
                 FROM course_step cs JOIN place p ON p.id = cs.place_id
                 WHERE cs.course_id IN (:ids)
                 ORDER BY cs.course_id, cs.step_order""")
                 .param("ids", courseIds)
-                .param("franchiseMin", CoursePlanner.FRANCHISE_MIN)
                 .query((rs, n) -> new StepPlace(rs.getLong("course_id"), rs.getInt("step_order"), rs.getString("role"),
                         (Integer) rs.getObject("stay_minutes"), (Integer) rs.getObject("walk_minutes"), rs.getString("memo"),
                         rs.getLong("place_id"), rs.getString("name"), rs.getString("branch"), rs.getString("category"),
                         rs.getString("detail_category"), rs.getDouble("lat"), rs.getDouble("lng"), rs.getString("sido"),
                         rs.getString("sigungu"), rs.getString("road_address"), rs.getString("lot_address"), rs.getString("phone"),
                         rs.getString("image_url"), rs.getString("description"),
-                        rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"), rs.getBoolean("franchise")))
+                        rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"), franchises.isFranchise(rs.getString("normalized_name"))))
                 .list()
                 .forEach(s -> result.computeIfAbsent(s.courseId(), k -> new ArrayList<>()).add(s));
         return result;
@@ -157,14 +156,11 @@ public class CourseQueryRepository {
                         WHERE pk.place_id = p.id) AS codes,
                        EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
                        EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'sbiz') AS sbiz,
-                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge,
-                       (SELECT count(*) FROM place p2 WHERE p2.normalized_name = p.normalized_name AND p2.closed_at IS NULL)
-                           > :franchiseMin AS franchise
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge
                 FROM place p
                 WHERE p.closed_at IS NULL AND p.category IN (:categories)
                   AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax""")
                 .param("categories", categories)
-                .param("franchiseMin", CoursePlanner.FRANCHISE_MIN)
                 .param("latMin", lat - Geo.latDelta(meters)).param("latMax", lat + Geo.latDelta(meters))
                 .param("lngMin", lng - Geo.lngDelta(meters, lat)).param("lngMax", lng + Geo.lngDelta(meters, lat))
                 .query((rs, n) -> {
@@ -174,7 +170,8 @@ public class CourseQueryRepository {
                             rs.getString("sido"), rs.getString("sigungu"), rs.getString("road_address"), rs.getString("lot_address"),
                             rs.getString("phone"), rs.getString("image_url"), rs.getString("description"),
                             codes == null ? Set.of() : Set.of(codes.split(",")),
-                            rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"), rs.getBoolean("franchise"));
+                            rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"),
+                            franchises.isFranchise(rs.getString("normalized_name")));
                 })
                 .list();
     }

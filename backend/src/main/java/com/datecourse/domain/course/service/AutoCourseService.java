@@ -2,7 +2,6 @@ package com.datecourse.domain.course.service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +19,7 @@ import com.datecourse.domain.collector.util.Geo;
 import com.datecourse.domain.course.util.CoursePlanner;
 import com.datecourse.domain.course.util.PlaceGrid;
 import com.datecourse.domain.place.entity.PlaceCategory;
+import com.datecourse.domain.place.service.FranchiseNames;
 
 /**
  * 자동 코스를 전국에서 다시 만든다 (CoursePlanner). 시도마다 장소를 메모리에 올려 조합하고, 시도 하나를 한 트랜잭션으로 쓴다.
@@ -41,10 +41,12 @@ public class AutoCourseService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
+    private final FranchiseNames franchises;
 
-    public AutoCourseService(JdbcTemplate jdbc, TransactionTemplate tx) {
+    public AutoCourseService(JdbcTemplate jdbc, TransactionTemplate tx, FranchiseNames franchises) {
         this.jdbc = jdbc;
         this.tx = tx;
+        this.franchises = franchises;
     }
 
     /** 만든 코스 수 */
@@ -54,9 +56,7 @@ public class AutoCourseService {
         jdbc.query("SELECT id, code FROM keyword", rs -> {
             keywordIds.put(rs.getString("code"), rs.getLong("id"));
         });
-        Set<String> franchises = new HashSet<>(jdbc.queryForList("""
-                SELECT normalized_name FROM place WHERE closed_at IS NULL
-                GROUP BY normalized_name HAVING count(*) > ?""", String.class, CoursePlanner.FRANCHISE_MIN));
+        franchises.reload();
         Map<Long, Long> existing = new HashMap<>();
         jdbc.query("SELECT anchor_place_id, id FROM course WHERE kind = 'auto' AND anchor_place_id IS NOT NULL", rs -> {
             existing.put(rs.getLong("anchor_place_id"), rs.getLong("id"));
@@ -66,7 +66,7 @@ public class AutoCourseService {
         IdAllocator ids = new IdAllocator();
         List<Long> made = new ArrayList<>();
         for (String sido : sidos) {
-            List<CoursePlanner.Plan> plans = planSido(sido, franchises);
+            List<CoursePlanner.Plan> plans = planSido(sido);
             List<Long> courseIds = tx.execute(status -> write(plans, existing, ids, keywordIds));
             made.addAll(courseIds);
         }
@@ -76,7 +76,7 @@ public class AutoCourseService {
         return made.size();
     }
 
-    private List<CoursePlanner.Plan> planSido(String sido, Set<String> franchises) {
+    private List<CoursePlanner.Plan> planSido(String sido) {
         PlaceGrid grid = new PlaceGrid();
         List<CoursePlanner.Spot> anchors = new ArrayList<>();
         List<CoursePlanner.Spot> neighborhood = new ArrayList<>();
@@ -94,7 +94,7 @@ public class AutoCourseService {
             CoursePlanner.Spot spot = new CoursePlanner.Spot(rs.getLong("id"), rs.getString("name"), normalized,
                     PlaceCategory.valueOf(rs.getString("category").toUpperCase()), rs.getString("detail_category"),
                     rs.getDouble("lat"), rs.getDouble("lng"), rs.getString("sido"), rs.getString("sigungu"),
-                    codes == null ? Set.of() : Set.of(codes.split(",")), rs.getBoolean("tour"), franchises.contains(normalized),
+                    codes == null ? Set.of() : Set.of(codes.split(",")), rs.getBoolean("tour"), franchises.isFranchise(normalized),
                     rs.getBoolean("badge"));
             grid.add(spot);
             if (CoursePlanner.isAnchor(spot)) {

@@ -21,7 +21,7 @@ import com.datecourse.domain.place.entity.PlaceCategory;
  *   중심 장소 → (구경할 곳 하나 더) → 카페 → 식당
  * 단계 사이는 직선 700m(걸어서 약 15분) 안, 모든 단계는 중심 장소에서 1km 안.
  * 후보는 점수로 고른다: 중심 장소와 분위기 키워드가 겹칠수록, TourAPI 에도 있는 곳(관광공사가 고른 곳),
- * 데이트에 어울리는 업종, 모범음식점처럼 공공기관이 지정한 곳일수록 위, 전국에 같은 이름이 많은 곳(체인점)과 멀리 있는 곳은 아래.
+ * 데이트에 어울리는 업종, 모범음식점처럼 공공기관이 지정한 곳일수록 위, 체인점(FranchiseNames: 흔한 이름, 브랜드+지역명)과 멀리 있는 곳은 아래.
  * 이미 다른 코스에 여러 번 넣은 곳도 조금씩 아래로 (명소가 몰린 곳에서 모든 코스가 같은 카페로 가지 않게).
  */
 public final class CoursePlanner {
@@ -43,8 +43,6 @@ public final class CoursePlanner {
     /** 동네 코스는 이 거리 안에 코스가 하나도 없을 때만 만든다 */
     public static final double NEIGHBORHOOD_GAP_M = 1500;
     static final double FROM_ANCHOR_MAX_M = 1000;
-    /** 같은 이름이 전국에 이만큼 넘게 있으면 체인점으로 본다 */
-    public static final int FRANCHISE_MIN = 15;
     /** 모범음식점 등 공공기관이 지정한 곳 (리뷰·별점이 없어서 가장 강한 품질 신호) */
     static final double BADGE_BONUS = 3;
 
