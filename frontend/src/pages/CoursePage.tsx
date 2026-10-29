@@ -311,7 +311,18 @@ export default function CoursePage() {
         {picker.error && <li className="notice small">{picker.error}</li>}
         {kind === 'alt' && !picker.items && !picker.error && <li className="muted small">근처를 찾는 중…</li>}
         {picker.items && picker.items.length === 0 && (
-          <li className="muted small">{kind === 'alt' ? '걸어서 10분 안에 바꿀 만한 곳이 없어요.' : '근처 2km 안에서 찾지 못했어요. 다른 이름으로 찾아 주세요.'}</li>
+          <li className="muted small">
+            {kind === 'alt' ? (
+              '걸어서 10분 안에 바꿀 만한 곳이 없어요.'
+            ) : (
+              <>
+                근처 2km 안에서 찾지 못했어요. 새로 생겼거나 공공데이터에 없는 가게일 수 있어요.
+                <button type="button" className="swap-button not-found-add" onClick={() => picker.kind === 'add' && openCustom(index, picker.query)}>
+                  이름과 주소로 직접 넣기
+                </button>
+              </>
+            )}
+          </li>
         )}
         {picker.items?.map((a, i) => (
           <li key={a.place.id} className="alternative">
@@ -439,7 +450,7 @@ export default function CoursePage() {
               <button type="submit">찾기</button>
             </form>
             {!picker.custom && pickerList(index, 'add')}
-            {picker.custom ? customForm(index, picker.custom) : (
+            {picker.custom ? customForm(index, picker.custom) : picker.items?.length === 0 ? null : (
               <button type="button" className="link-button small" onClick={() => openCustom(index, picker.query)}>
                 찾는 곳이 없나요? 주소로 직접 넣기
               </button>

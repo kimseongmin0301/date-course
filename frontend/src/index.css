@@ -945,3 +945,8 @@ button:disabled {
 .custom-place > .link-button {
   justify-self: start;
 }
+
+.not-found-add {
+  display: block;
+  margin-top: 8px;
+}
