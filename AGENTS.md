@@ -5,9 +5,9 @@
 
 ## 1. 프로젝트 한 줄 요약
 
-**데이트코스 추천**: 지도에서 지역과 키워드(분위기·활동·실내외·예산)를 고르면, 순위가 매겨진 데이트 코스와 근처 식당·카페를 보여주는 웹 서비스입니다. 주소 `https://date-course.kimseongmin.co.kr`.
+**데이트코스 추천**: 지도에서 지역과 키워드(분위기·활동·실내외·예산)를 고르면, 순위가 매겨진 데이트 코스와 근처 식당·카페를 보여주고, 그 코스로 내 일정(바꾸기·넣기·시간표)을 짜서 저장하는 웹 서비스입니다. 주소 `https://date-course.kimseongmin.co.kr`.
 
-- **로그인은 없습니다.** 저장·좋아요·다녀왔어요는 브라우저마다 만드는 방문자 id 로 구분합니다. 로그인은 관리자 화면에만 둡니다.
+- **로그인은 없습니다.** 일정 저장(·앞으로 좋아요·다녀왔어요)은 브라우저마다 만드는 방문자 id(쿠키 `dc_vid`)로 구분합니다. 기기 정보(브라우저 지문 등)로 사람을 알아내려 하지 않습니다. 로그인은 관리자 화면에만 둡니다(예정).
 - 장소는 **공공데이터 상가(상권)정보와 한국관광공사 TourAPI** 두 곳에서 모아 중복을 합칩니다. 지도 서비스의 리뷰·별점을 긁어 오지 않습니다(약관 위반).
 - **무료로만 운영합니다.** 그래서 쓰지 않는 것:
   - 카카오 API: 2026-07-21 부터 카카오맵 API 무료 쿼터는 계정의 첫 번째 앱에만 주고, 그 밖에는 결제 수단(비즈월렛)을 연결해야 합니다.
@@ -43,13 +43,16 @@
 │     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (관리자 admin 은 예정)
 │     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
-│     │  ├─ place/ (검색)          LocationSearchController GET /api/locations, LocationSearchService(하루 캐시·Geocoding 한도),
-│     │  │                         LocationSearchRepository(시군구·동, 명소), client/NaverGeocodeClient
+│     │  ├─ place/ (검색)          LocationSearchController GET /api/locations·/api/addresses·/api/places/images,
+│     │  │                         LocationSearchService(하루 캐시·Geocoding 한도), LocationSearchRepository(시군구·동, 명소),
+│     │  │                         NaverPlaceSearchService(네이버 지역·이미지 검색, 하루 한도·캐시), FranchiseNames(체인 판별),
+│     │  │                         client/NaverGeocodeClient, client/NaverLocalSearchClient(NAVER API HUB 지역·이미지)
 │     │  ├─ keyword/               Keyword, KeywordKind(mood/activity/setting/budget), KeywordController GET /api/keywords (Redis 캐시)
 │     │  ├─ course/                Course(단계·키워드 포함), CourseStep, CourseKind(curated/auto), StepRole(spot/cafe/meal),
 │     │  │                         AutoCourseService(자동 코스 다시 만들기), util/CoursePlanner(조합 규칙)·PlaceGrid(반경 찾기),
 │     │  │                         CourseScoreService(순위 점수, 매일 04:30), CourseQueryService·CourseQueryRepository(검색·상세),
-│     │  │                         CourseController GET /api/courses, GET /api/courses/{id} (7절 "API")
+│     │  │                         CourseController /api/courses·/api/courses/{id}·…/alternatives·/api/places/nearby·/api/places/naver,
+│     │  │                         PlanController·PlanService·PlanRepository (내 일정 저장 /api/plans, saved_plan) (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
 │     │  ├─ suggestion/            이용자가 알려 준 가게 (SuggestionService: 모으기·3명이면 공개·관리자 승인, SuggestionRepository,
 │     │  │                         ProfanityFilter: 힐링룸과 같은 욕설·음란어 목록 resources/moderation/)
@@ -58,16 +61,18 @@
 │     │     ├─ client/             TourApiClient (areaBasedList2, 1,000개씩)
 │     │     ├─ service/            PlaceUpsertService(한 곳씩 넣기, TourAPI), TourCollector, TourItemMapper(관광타입 → 우리 분류),
 │     │     │                      SbizImporter(상가정보 CSV 를 묶어서 넣기), SbizRowMapper(업종 → 우리 분류),
-│     │     │                      PlaceKeywordTagger(장소 키워드 자동으로 다시 붙이기)
+│     │     │                      PlaceKeywordTagger(장소 키워드 자동으로 다시 붙이기), ModelRestaurantImporter(모범음식점 CSV)
 │     │     ├─ dto/                PlaceCandidate (출처 하나에서 읽은 장소)
 │     │     └─ util/               PlaceMatcher(같은 장소 규칙), PlaceNames(정리한 이름·지점명), Geo(거리·사각형),
 │     │                            Regions(주소 → 시도·시군구), CsvLine(따옴표를 아는 CSV 한 줄 나누기),
-│     │                            PlaceKeywordRules(분류·업종·이름 → 키워드)
+│     │                            PlaceKeywordRules(분류·업종·이름 → 키워드), AddressKey(모범음식점 주소 맞추기)
 │     └─ global/
-│        ├─ controller/            HealthController  GET /api/health
+│        ├─ controller/            HealthController  GET /api/health, SpaController(화면 주소 → index.html)
+│        ├─ config/                SchedulingConfig (매일 순위 점수)
 │        ├─ exception/             ApiException(공통 부모), GlobalExceptionHandler (→ { "message": ... })
 │        ├─ cache/                 JsonCache (Redis 캐시, 5-1절)
-│        └─ util/                  LowercaseEnumConverter (enum 을 DB 에 소문자로: 각 enum 의 DbConverter 가 상속)
+│        └─ util/                  LowercaseEnumConverter (enum 을 DB 에 소문자로: 각 enum 의 DbConverter 가 상속),
+│                                  VisitorCookie (방문자 쿠키 dc_vid 읽기·만들기)
 └─ frontend/                       ← Vite + React 앱
    ├─ vite.config.ts               /api 를 백엔드(18290)로 넘김
    └─ src/
@@ -76,7 +81,8 @@
       ├─ components/               KeywordPicker (키워드 칩: 3개까지, 실내외·예산은 하나만), LocationSearch (지역 검색창)
       ├─ types/                    naver-maps.d.ts (네이버 지도 v3 중 쓰는 것만 적은 타입)
       ├─ lib/                      api.ts(fetch 래퍼, 오류는 서버 message 그대로), types.ts(API 응답 모양), naverMap.ts(스크립트 한 번만 불러오기, 숫자 핀, 반경↔확대),
-      │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표)
+      │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표),
+      │                            plan.ts(내 일정: 시간표·저장·임시 저장·직접 넣은 가게), storage.ts(localStorage 도우미)
       └─ pages/                    HomePage(/), SearchPage(/search?lat=&lng=&r=&kw=), CoursePage(/courses/:id), SavedPage(/saved), NotFoundPage
 ```
 
@@ -182,10 +188,10 @@ cd backend
   - 거리: 단계 사이 직선 700m, 모든 단계가 중심 장소에서 1km 안. 걷는 시간 = 직선 × 1.3 ÷ 분속 67m. 머무는 시간: 명소·문화 60분(두 번째면 50), 놀거리 90/60, 소품샵 30, 카페 60, 식당 70.
   - 후보 점수: 중심 장소와 분위기 키워드가 겹칠 때마다 +2, TourAPI 에도 있으면 +2, 체인점(`FranchiseNames`)  −3, 250m 마다 −1, 업종 점수(파스타/스테이크 +3 … 국밥·분식 −2), 중심 장소와 같은 분류의 구경거리(공원 → 공원) −1, 이미 다른 코스에 넣은 횟수마다 −0.7(명소가 몰린 인사동에서 한 찻집이 44개 코스에 들어간 적이 있음). 카페나 식당이 없으면 코스를 만들지 않습니다.
   - 코스 키워드: 구경거리 단계의 분위기·활동 + 카페·식당의 분위기, 실내외는 중심 장소, 예산은 식당, "맛집 투어"는 식당이 TourAPI 에 있을 때만.
-  - **목적지 카페 코스**: 관광공사가 소개하고 체인이 아닌 카페(`isDestinationCafe`) 중 명소 코스에 안 들어간 곳은 그 카페를 중심으로 (근처 구경거리) → 카페 → 식당(`planAroundCafe`). 소개 카페의 절반(1,492곳)이 어떤 코스에도 없었음. 2026-10-29 1,406개.
+  - **목적지 카페 코스**: 관광공사가 소개하고 체인이 아닌 카페(`isDestinationCafe`) 중 명소 코스에 안 들어간 곳은 그 카페를 중심으로 (근처 구경거리) → 카페 → 식당(`planAroundCafe`). 소개 카페의 절반(1,492곳)이 어떤 코스에도 없었음. 2026-10-29 1,401개.
   - **체인 판별**(`place/service/FranchiseNames`, 코스 만들기·코스 상세 고른 이유·근처 대안이 같이 씀): ① 같은 이름이 전국 15곳 넘게 ② 브랜드(흔한 이름 중 30% 이상에 지점명, 3자 이상, 946개)로 시작하고 뒤에 6자 이내("투썸플레이스서초"). 집계가 30초 넘게 걸려 Redis `franchise-names` 에 하루 두고, 웹 서버는 켜질 때 뒤에서 읽으며 그 전에는 "체인 아님"으로 봄(화면이 멈추지 않게). 자동 코스를 만들 때는 `reload()` 로 다시 집계.
   - 이미 고른 곳과 같은 장소는 다시 고르지 않음(`alreadyTaken`): 이름이 같거나, 50m 안에서 한 이름이 다른 이름을 품으면(출처마다 이름이 달라 따로 들어간 같은 가게).
-  - **동네 코스**: 명소 코스가 1.5km 안에 하나도 없는 동네(주거지·역세권, 예: 대전 반석역)는 구경거리(소품샵·서점·볼링장·게임장·이름으로 "이색적"인 놀거리)를 중심으로 같은 규칙으로 만듭니다. 약 1km 칸마다 가장 나은 구경거리 하나(`anchorRank`: 분위기 키워드 수, TourAPI +2, 체인점 −3)로 해 보고, 만든 코스도 다음 칸의 "1.5km 안에 있음"에 셉니다. 2026-10-29 805개 (명소 9,602 + 목적지 카페 1,406 + 동네 805 = 11,813).
+  - **동네 코스**: 명소 코스가 1.5km 안에 하나도 없는 동네(주거지·역세권, 예: 대전 반석역)는 구경거리(소품샵·서점·볼링장·게임장·이름으로 "이색적"인 놀거리)를 중심으로 같은 규칙으로 만듭니다. 약 1km 칸마다 가장 나은 구경거리 하나(`anchorRank`: 분위기 키워드 수, TourAPI +2, 체인점 −3)로 해 보고, 만든 코스도 다음 칸의 "1.5km 안에 있음"에 셉니다. 2026-10-29 운영 DB 804개 (명소 9,604 + 목적지 카페 1,401 + 동네 804 = 11,809).
   - 중심 장소마다 하나(`course_auto_anchor_idx`): 다시 만들 때 같은 id 를 고쳐 써서 반응이 이어집니다. 이번에 못 만든 예전 자동 코스는 반응이 없으면 지우고, 있으면 숨깁니다. 시도마다 장소를 메모리에 올려 조합하므로 시도 경계 너머의 카페·식당은 보지 않습니다.
 - **모범음식점**(`ModelRestaurantImporter`): 행정안전부 전국모범음식점표준데이터 CSV(공공데이터포털 15096282, CP949, 칸 안 줄바꿈 있음)를 `data/model/` 에 받아 넣습니다. 좌표가 없어 주소(`AddressKey`: 시도·층·괄호를 뗀 "시군구 길 번호")와 이름(같거나 한쪽이 품음)으로 식당·카페·술집에 맞춥니다. 영업 중·지정 취소 없음만. 넣을 때마다 `model_restaurant` 표시를 모두 지우고 다시 넣습니다. 2026-10-29: 11,308곳 중 9,616곳(85%). 자동 다운로드는 403 이라 사람이 받습니다.
 - 상가(상권)정보 CSV 는 공공데이터포털(15083033)에서 분기마다 zip 으로 받아 `data/sbiz/{기준월}/`(git 제외, 전국 1.5GB)에 풉니다. 파일은 시도별이고 UTF-8 입니다.
@@ -226,8 +232,9 @@ cd backend
 - 코스를 고르면 지도 위에 "◀ 2위 / 7 ▶ · 전체 보기"(`.course-nav`): 목록을 내리지 않고 코스를 넘겨 보고, 전체 보기는 고른 것을 풀고 검색한 넓이로 돌아갑니다.
 - **내 일정**(코스 상세, `lib/plan.ts`): 코스를 바탕으로 장소 바꾸기·**가고 싶은 곳 넣기**(단계 사이 "+ 여기에 가고 싶은 곳 넣기" → `GET /api/places/nearby` 로 앞 장소 근처 2km 에서 이름·업종으로 찾기. 데이터에 없는 가게는 "주소로 직접 넣기": 이름 + `GET /api/addresses` 로 고른 주소·좌표를 일정에 그대로 저장, 그 사람 일정에만 보이고 코스·순위에는 쓰지 않음. 저장할 때 "이용자가 알려 준 가게"로 모으고 아래 규칙으로 공개)·빼기·순서 바꾸기(▲▼). **날짜·출발 시간(분 단위)**, 단계마다 **머무는 시간(1~720분 직접 입력)**과 **도착 시간 고정**(예약 등: 도착 = max(앞 출발 + 걷는 시간, 고정), 늦으면 경고)으로 시간표를 만듭니다. 화면(`timeline`)과 서버(`PlanService.timeline`)가 같은 식입니다.
 - **저장(로그인 없음)**: "💾 저장" → `PUT /api/plans/{코스id}` 로 서버(`saved_plan`)에 저장, 다음에 와도 그대로. 방문자 구분은 쿠키 **`dc_vid`**(`global/util/VisitorCookie`: 무작위 UUID, HttpOnly·SameSite=Lax·https 면 Secure, 1년, 저장할 때 없으면 만듦). 쿠키에는 id 만 두고(4KB 제한·요청마다 전송) 일정은 서버에, 장소는 place id 만 두고 읽을 때 지금 DB 의 장소와 이어 붙입니다(화면이 보낸 이름·주소를 믿지 않음). 방문자당 50개·일정당 15곳. 저장 전 고친 내용은 브라우저 임시(`localStorage` `course-plan:{코스id}`, 저장하면 지움). 불러오는 순서: 임시 → 서버 저장본 → 원래 코스. "내 저장"(`/saved`)에서 목록·열기·지우기. 저장한 일정이 있는 자동 코스는 다시 만들 때 지우지 않고 숨깁니다(`AutoCourseService.removeStale`).
-- **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 **이 브라우저에만**(`localStorage` `course-swaps:{코스id}`, `lib/storage.ts`) 저장하고 "원래 장소로"·"원래 코스로"로 되돌립니다. 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
-- 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
+- **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 내 일정의 일부로 임시 저장·서버 저장되고(위 "저장"), "원래 코스로"로 되돌립니다. 예전 `localStorage` `course-swaps:{코스id}` 저장분은 처음 열 때 내 일정으로 옮깁니다(`loadDraft`). 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
+- 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로. 사진이 없는 단계는 "📷 네이버 이미지 보기"(누를 때만 `GET /api/places/images`).
+- **가고 싶은 곳 찾기 순서**: 우리 데이터(`/api/places/nearby`) → 없으면 바로 네이버 지역 검색(`/api/places/naver`, 있어도 "네이버에서 찾기") → "이름과 주소로 직접 넣기"(`/api/addresses`). 직접 넣은 곳은 분류 `custom`, 네이버에서 고른 곳은 `naver`(둘 다 id 0)로 화면이 이름·주소·좌표를 저장 요청에 담습니다(`lib/plan.ts` `toRequest`).
 
 ### 이용자가 알려 준 가게 (SuggestionService)
 - 일정을 저장할 때 직접 넣은 가게를 `place_suggestion` 에 모읍니다. **바로 공개하지 않습니다.**
@@ -272,7 +279,7 @@ cd backend
 
 - [x] 기획안 (`docs/기획안.md`), 동작 방식 (`docs/동작방식.md`)
 - [x] 뼈대: 백엔드(헬스 체크), 프론트(화면 주소, 서버 연결 확인)
-- [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
+- [x] 키 발급 (네이버 클라우드 Maps: Dynamic Map·Geocoding + 이용 한도, TourAPI, NAVER API HUB 검색: 지역·이미지)
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
 - [x] 백엔드에 JPA 연결, 엔티티 9개 테이블 (validate 통과)
 - [x] 장소 수집기: TourAPI, 상가(상권)정보 CSV, 중복 찾기 (서울 수집: 157,301곳, 두 출처에 다 있는 곳 446, 중복 후보 217)
@@ -284,12 +291,14 @@ cd backend
 - [x] 목적지 카페 코스 1,406개, 동네 코스 805개, 코스가 없으면 검색 반경 넓히기
 - [x] 품질 신호: 모범음식점 9,616곳(place_badge, V3), 코스 상세에 고른 이유
 - [x] 순위 점수(매일 04:30), 코스 검색·상세 API (Redis 캐시)
-- [ ] 반응(저장·좋아요·다녀왔어요) API, 관리자 큐레이션
+- [ ] 반응(좋아요·다녀왔어요) API, 관리자 큐레이션
 - [x] 화면: 지도(하나만), 인기 지역·내 주변, 키워드, 코스 순위 목록·핀·동선, 코스 상세
-- [x] 화면: 근처 대안 보기·바꾸기(브라우저에 저장), 코스 넘겨 보기(◀ ▶ 전체 보기)
+- [x] 화면: 근처 대안 보기·바꾸기(내 일정으로 저장), 코스 넘겨 보기(◀ ▶ 전체 보기)
 - [x] 내 일정: 가고 싶은 곳 넣기·빼기·순서 바꾸기, 분 단위 시간표·도착 시간 고정
 - [x] 일정 저장(로그인 없이 쿠키 `dc_vid` + 서버 `saved_plan`, V4), 내 저장 화면
 - [x] 내 일정에 데이터에 없는 가게 직접 넣기(Geocoding), 이용자가 알려 준 가게 모으기·공개(V5)
+- [x] 우리 데이터에 없으면 네이버 지역 검색(NAVER API HUB), 사진 없는 곳 네이버 이미지 보기
+- [x] 문서 최신화 (2026-10-29: README·기획안·동작방식, 코스 11,809개 기준)
 - [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키 안내), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
