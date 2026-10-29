@@ -1077,3 +1077,51 @@ button:disabled {
 .account-message {
   color: var(--text);
 }
+
+/* 개인정보처리방침 */
+.privacy h2 {
+  margin: 22px 0 8px;
+  font-size: 1.05rem;
+}
+
+.privacy ul {
+  padding-left: 18px;
+}
+
+.privacy li {
+  margin: 4px 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.privacy table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.privacy th,
+.privacy td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.privacy th {
+  white-space: nowrap;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.site-footer {
+  margin: 32px 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.site-footer a {
+  color: var(--muted);
+}

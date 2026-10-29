@@ -22,6 +22,14 @@ public class AccountException extends ApiException {
         return new AccountException(HttpStatus.UNAUTHORIZED, "코드나 비밀번호가 맞지 않아요.");
     }
 
+    public static AccountException notLinked() {
+        return new AccountException(HttpStatus.NOT_FOUND, "이 브라우저에는 코드가 없어요.");
+    }
+
+    public static AccountException wrongPassword() {
+        return new AccountException(HttpStatus.UNAUTHORIZED, "비밀번호가 맞지 않아요.");
+    }
+
     public static AccountException locked() {
         return new AccountException(HttpStatus.TOO_MANY_REQUESTS, "너무 여러 번 틀렸어요. 15분 뒤에 다시 해 주세요.");
     }

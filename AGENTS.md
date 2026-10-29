@@ -85,7 +85,8 @@
       ├─ lib/                      api.ts(fetch 래퍼, 오류는 서버 message 그대로), types.ts(API 응답 모양), naverMap.ts(스크립트 한 번만 불러오기, 숫자 핀, 반경↔확대),
       │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표),
       │                            plan.ts(내 일정: 시간표·저장·임시 저장·직접 넣은 가게), storage.ts(localStorage 도우미)
-      └─ pages/                    HomePage(/), SearchPage(/search?lat=&lng=&r=&kw=), CoursePage(/courses/:id), SavedPage(/saved), NotFoundPage
+      └─ pages/                    HomePage(/), SearchPage(/search?lat=&lng=&r=&kw=), CoursePage(/courses/:id), SavedPage(/saved),
+                                   PrivacyPage(/privacy, 개인정보처리방침), NotFoundPage
 ```
 
 - 다른 도메인의 entity 를 컨트롤러에서 직접 쓰지 말고 service 를 통해 접근합니다.
@@ -218,6 +219,7 @@ cd backend
 | GET | `/api/account` | 이 브라우저가 코드로 묶였는지 `{ linked, code }` (code 는 "K7QM-29XD") |
 | POST | `/api/account` | 코드 만들기 `{ password }`(6~64자) → 201 `{ linked: true, code }`. 지금 쿠키(없으면 만들어)의 방문자 id 에 묶음. 이미 있으면 409 |
 | POST | `/api/account/login` | `{ code, password }` → `{ code, moved }`. 맞으면 이 브라우저의 일정을 계정으로 옮기고(같은 코스는 나중에 저장한 쪽) 쿠키를 계정 id 로 바꿈. 틀리면 401(없는 코드도 같은 말·같은 시간), 코드 5번·IP 20번 틀리면 15분 429 |
+| DELETE | `/api/account` | 코드 지우기 `{ password }` → 204 (일정은 이 브라우저에 남음). 코드 없음 404, 비밀번호 틀림 401(로그인과 같이 세고 잠금) |
 | POST | `/api/account/logout` | 이 브라우저 쿠키를 새 무작위 id 로 → 204 (계정 일정은 그대로) |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
@@ -249,6 +251,12 @@ cd backend
 - 다른 기기에서 코드 + 비밀번호로 로그인하면, 그 브라우저에 저장돼 있던 일정을 계정으로 옮기고(`PlanService.moveAll`, 같은 코스는 나중에 저장한 쪽) 쿠키를 계정의 방문자 id 로 바꿉니다. 그 브라우저가 이미 다른 계정이면 섞지 않고 바꾸기만 합니다. 로그아웃하면 그 브라우저는 새 무작위 id 가 됩니다.
 - 비밀번호는 PBKDF2-HMAC-SHA256(210,000번, 소금 16바이트)로만 저장합니다(`PasswordHasher`). 없는 코드도 같은 계산을 해서 걸린 시간으로 코드가 있는지 알 수 없게 합니다. IP 는 nginx 의 `X-Real-IP` 를 루프백에서 온 요청일 때만 믿습니다(`VisitorCookie.clientIp`).
 - 계정은 결국 "방문자 id 를 다시 받는 열쇠"라, 일정 저장·이용자 제안 등 다른 기능은 바뀌지 않습니다.
+- "코드 지우기"(`DELETE /api/account`, 비밀번호 확인)로 `plan_account` 행만 지웁니다. 일정은 이 브라우저(쿠키)에 남습니다.
+
+### 개인정보처리방침 (`/privacy`, `pages/PrivacyPage.tsx`)
+- 화면 아래 footer 에 링크. 표(1절)는 **실제로 저장하는 것 그대로**입니다: 쿠키 `dc_vid`, `saved_plan`, `plan_account`, `place_suggestion`, Redis `account-fail:*`(IP, 15분), nginx 접속 기록(14일, 내 주변 좌표가 주소에 들어감), 브라우저 `course-plan:*`. 외부: 네이버 지도(브라우저), 네이버 주소·지역·이미지 검색(서버가 검색어만), 이미지 섬네일(브라우저, no-referrer).
+- **저장하는 정보(DB 칼럼, Redis 키, 쿠키·localStorage, 로그)나 외부 서비스를 추가·변경하면 이 페이지의 표도 함께 고치고 `SINCE` 와 "바뀐 내용"을 갱신**합니다. 확인하지 않은 보안 주장은 쓰지 않습니다.
+- 앱 로그에는 IP·방문자 id·비밀번호·검색어를 남기지 않습니다(남기게 되면 방침도 고칠 것).
 
 ### 이용자가 알려 준 가게 (SuggestionService)
 - 일정을 저장할 때 직접 넣은 가게를 `place_suggestion` 에 모읍니다. **바로 공개하지 않습니다.**
@@ -269,7 +277,7 @@ cd backend
 ## 9. 배포
 
 - 주소: **https://date-course.kimseongmin.co.kr** (nginx → `127.0.0.1:18290`). 힐링룸과 같은 `ai-server`(SSH 별칭), 같은 DB·Redis.
-- **jar 하나**: 화면(`frontend/dist`)을 `processResources` 가 jar 의 `static/` 에 넣고(`backend/build.gradle`), 스프링이 화면과 API 를 함께 냅니다. 화면 주소(`/search`, `/courses/{번호}`, `/saved`)로 바로 들어오면 `SpaController` 가 `index.html` 을 줍니다. jar 이름은 `date-course.jar`.
+- **jar 하나**: 화면(`frontend/dist`)을 `processResources` 가 jar 의 `static/` 에 넣고(`backend/build.gradle`), 스프링이 화면과 API 를 함께 냅니다. 화면 주소(`/search`, `/courses/{번호}`, `/saved`, `/privacy`)로 바로 들어오면 `SpaController` 가 `index.html` 을 줍니다. jar 이름은 `date-course.jar`.
 - 서버 폴더
   ```
   ~/date-course/
@@ -315,7 +323,8 @@ cd backend
 - [x] 문서 최신화 (2026-10-29: README·기획안·동작방식, 코스 11,809개 기준)
 - [x] 다른 기기에서도 보기: 코드 + 비밀번호(V6), 로그인하면 이 브라우저 일정을 계정으로 합치기
 - [x] 머무는 시간 입력: 휴대폰에서 다 지우고 새로 쓰기, −10/+10
-- [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키·코드 계정 안내), 관리자 화면(제안 승인)
+- [x] 개인정보처리방침(`/privacy`, 2026-10-29 시행), 코드 지우기
+- [ ] 좋아요·다녀왔어요(반응), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
 - [x] 지역 검색: 동네·명소(우리 데이터), 주소(네이버 Geocoding), 검색하면 바로 그 위치로

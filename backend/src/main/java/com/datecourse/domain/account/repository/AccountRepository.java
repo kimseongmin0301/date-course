@@ -41,6 +41,10 @@ public class AccountRepository {
                 .param("code", code).param("visitor", visitor).param("hash", passwordHash).update() > 0;
     }
 
+    public void delete(long id) {
+        jdbc.sql("DELETE FROM plan_account WHERE id = :id").param("id", id).update();
+    }
+
     public void touchLogin(long id) {
         jdbc.sql("UPDATE plan_account SET last_login_at = now() WHERE id = :id").param("id", id).update();
     }

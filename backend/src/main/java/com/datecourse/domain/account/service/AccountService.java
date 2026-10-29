@@ -107,6 +107,28 @@ public class AccountService {
         return new Login(row.visitorId(), row.code(), moved);
     }
 
+    /**
+     * 코드 지우기 (개인정보처리방침의 "지우고 싶을 때"): 이 브라우저에 묶인 코드를 비밀번호를 확인하고 지운다.
+     * 저장한 일정은 이 브라우저(쿠키)에 그대로 남고, 다른 기기에서는 더 이상 로그인할 수 없다. 틀리면 로그인과 같이 세고 잠근다
+     */
+    public void delete(UUID visitor, String password, String ip) {
+        AccountRepository.Row row = (visitor == null ? Optional.<AccountRepository.Row>empty() : accounts.byVisitor(visitor))
+                .orElseThrow(AccountException::notLinked);
+        String codeKey = "account-fail:code:" + row.code();
+        String ipKey = "account-fail:ip:" + (ip == null ? "-" : ip);
+        if (cache.counter(codeKey) >= CODE_FAIL_LIMIT || cache.counter(ipKey) >= IP_FAIL_LIMIT) {
+            throw AccountException.locked();
+        }
+        if (!PasswordHasher.matches(password, row.passwordHash())) {
+            cache.increment(codeKey, LOCK);
+            cache.increment(ipKey, LOCK);
+            throw AccountException.wrongPassword();
+        }
+        accounts.delete(row.id());
+        cache.evict(codeKey);
+        log.info("내 일정 계정 지움");
+    }
+
     /** "K7QM-29xd" → "K7QM29XD" (띄어쓰기·줄표를 빼고 대문자로) */
     static String normalize(String code) {
         return code == null ? "" : code.replaceAll("[^0-9A-Za-z]", "").toUpperCase(java.util.Locale.ROOT);

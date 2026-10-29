@@ -3,6 +3,7 @@ package com.datecourse.domain.account.controller;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -60,6 +61,13 @@ public class AccountController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(HttpServletRequest request, HttpServletResponse response) {
         VisitorCookie.set(request, response, UUID.randomUUID());
+    }
+
+    /** 코드 지우기: 비밀번호를 확인하고 이 브라우저에 묶인 코드를 지운다 (일정은 이 브라우저에 남음) */
+    @DeleteMapping("/api/account")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@RequestBody(required = false) AccountCreateRequest body, HttpServletRequest request) {
+        accountService.delete(VisitorCookie.read(request).orElse(null), body == null ? null : body.password(), VisitorCookie.clientIp(request));
     }
 
     /** "K7QM29XD" → "K7QM-29XD" */

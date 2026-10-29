@@ -98,6 +98,17 @@ class AccountServiceTests {
     }
 
     @Test
+    void 코드를_지우려면_비밀번호가_맞아야_한다() {
+        given(accounts.byVisitor(owner)).willReturn(Optional.of(account));
+        assertThatThrownBy(() -> service.delete(owner, "틀린비번", "1.2.3.4")).hasMessageContaining("비밀번호가 맞지 않아요");
+        verify(accounts, never()).delete(1);
+
+        service.delete(owner, "비밀번호123", "1.2.3.4");
+        verify(accounts).delete(1);
+        assertThatThrownBy(() -> service.delete(me, "비밀번호123", "1.2.3.4")).hasMessageContaining("코드가 없어요");
+    }
+
+    @Test
     void 없는_코드도_같은_말로_거절한다() {
         assertThatThrownBy(() -> service.login(me, "ZZZZ9999", "비밀번호123", "1.2.3.4")).hasMessageContaining("맞지 않아요");
         verify(cache).increment(startsWith("account-fail:code:"), any());

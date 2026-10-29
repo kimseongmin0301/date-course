@@ -6,7 +6,7 @@ interface AccountStatus {
   code: string | null
 }
 
-type Mode = 'idle' | 'create' | 'login'
+type Mode = 'idle' | 'create' | 'login' | 'delete'
 
 /**
  * 다른 기기에서도 내 일정 보기 (고를 때만). 이메일·전화 없이 비밀번호를 정하면 코드를 받고,
@@ -76,6 +76,25 @@ export default function AccountBox({ onChanged }: { onChanged: () => void }) {
     }
   }
 
+  /** 코드 지우기 (비밀번호 확인). 일정은 이 브라우저에 남는다 */
+  async function remove(e: FormEvent) {
+    e.preventDefault()
+    if (!window.confirm('코드를 지울까요? 다른 기기에서는 더 이상 로그인할 수 없어요. 일정은 이 브라우저에 남아요.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api<void>('/account', { method: 'DELETE', body: JSON.stringify({ password }) })
+      setStatus({ linked: false, code: null })
+      setMode('idle')
+      setMessage('코드를 지웠어요. 일정은 이 브라우저에 그대로 있어요.')
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+      setPassword('')
+    }
+  }
+
   async function logout() {
     if (!window.confirm('이 브라우저에서 로그아웃할까요? 일정은 계정에 남아 있고, 코드로 다시 로그인하면 보여요.')) return
     try {
@@ -98,9 +117,29 @@ export default function AccountBox({ onChanged }: { onChanged: () => void }) {
             <strong>다른 기기에서도 보기</strong> · 코드 <span className="account-code">{status.code}</span>
           </p>
           <p className="muted small">다른 기기의 "내 저장"에서 이 코드와 비밀번호로 로그인하면 같은 일정이 보여요.</p>
-          <button type="button" className="link-button small" onClick={logout}>
-            이 브라우저에서 로그아웃
-          </button>
+          <div className="account-actions">
+            <button type="button" className="link-button small" onClick={logout}>
+              이 브라우저에서 로그아웃
+            </button>
+            {mode !== 'delete' && (
+              <button type="button" className="link-button small" onClick={() => open('delete')}>
+                코드 지우기
+              </button>
+            )}
+          </div>
+          {mode === 'delete' && (
+            <form className="account-form" onSubmit={remove}>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호" autoComplete="current-password" maxLength={64} required aria-label="비밀번호" />
+              <div className="account-actions">
+                <button type="submit" className="secondary small-button" disabled={busy}>
+                  {busy ? '지우는 중…' : '코드 지우기'}
+                </button>
+                <button type="button" className="link-button small" onClick={() => open('idle')}>
+                  취소
+                </button>
+              </div>
+            </form>
+          )}
         </>
       ) : (
         <>
