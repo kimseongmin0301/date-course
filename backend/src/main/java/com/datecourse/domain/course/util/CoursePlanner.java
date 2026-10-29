@@ -124,24 +124,24 @@ public final class CoursePlanner {
 
         List<Step> steps = new ArrayList<>();
         steps.add(new Step(anchor, StepRole.SPOT, stay(anchor, true), null));
-        Set<String> usedNames = new LinkedHashSet<>(Set.of(anchor.normalizedName()));
+        List<Spot> taken = new ArrayList<>(List.of(anchor));
 
         Spot prev = anchor;
         // 중심 장소와 같은 분류(공원 → 공원)는 조금 아래로
-        Optional<GridPick> second = pick(grid, anchor, prev, taste, usedNames, used, CoursePlanner::isSecondSpot,
+        Optional<GridPick> second = pick(grid, anchor, prev, taste, taken, used, CoursePlanner::isSecondSpot,
                 s -> spotBonus(s) - (s.detail() != null && s.detail().equals(anchor.detail()) ? 1 : 0));
         if (second.isPresent()) {
             steps.add(new Step(second.get().spot(), StepRole.SPOT, stay(second.get().spot(), false), walkMinutes(second.get().meters())));
-            usedNames.add(second.get().spot().normalizedName());
+            taken.add(second.get().spot());
             prev = second.get().spot();
         }
-        Optional<GridPick> cafe = pick(grid, anchor, prev, taste, usedNames, used, s -> s.category() == PlaceCategory.CAFE, CoursePlanner::cafeBonus);
+        Optional<GridPick> cafe = pick(grid, anchor, prev, taste, taken, used, s -> s.category() == PlaceCategory.CAFE, CoursePlanner::cafeBonus);
         if (cafe.isEmpty()) {
             return Optional.empty();
         }
         steps.add(new Step(cafe.get().spot(), StepRole.CAFE, 60, walkMinutes(cafe.get().meters())));
-        usedNames.add(cafe.get().spot().normalizedName());
-        Optional<GridPick> meal = pick(grid, anchor, cafe.get().spot(), taste, usedNames, used,
+        taken.add(cafe.get().spot());
+        Optional<GridPick> meal = pick(grid, anchor, cafe.get().spot(), taste, taken, used,
                 s -> s.category() == PlaceCategory.RESTAURANT, s -> MEAL_BONUS.getOrDefault(s.detail(), 0));
         if (meal.isEmpty()) {
             return Optional.empty();
@@ -151,19 +151,71 @@ public final class CoursePlanner {
         return Optional.of(toPlan(anchor, steps));
     }
 
+    /** 그 자체로 가 볼 만한 카페: 관광공사(TourAPI)가 소개하고 체인이 아닌 곳 (갤러리 카페, 바다 앞 카페 등) */
+    public static boolean isDestinationCafe(Spot s) {
+        return s.category() == PlaceCategory.CAFE && s.tour() && !s.franchise();
+    }
+
+    /**
+     * 목적지 카페 코스: (근처 구경거리) → 그 카페 → 식당. 명소 코스에 끼지 못한 좋은 카페가 빠지지 않게.
+     * 구경거리는 없어도 되지만 식당은 있어야 한다. 거리 규칙은 명소 코스와 같다 (카페를 중심으로)
+     */
+    public static Optional<Plan> planAroundCafe(Spot cafe, PlaceGrid grid, Map<Long, Integer> used) {
+        Set<String> taste = new LinkedHashSet<>(cafe.keywords());
+        taste.retainAll(MOOD);
+        List<Spot> taken = new ArrayList<>(List.of(cafe));
+        List<Step> steps = new ArrayList<>();
+
+        Optional<GridPick> spot = pick(grid, cafe, cafe, taste, taken, used,
+                s -> isAnchor(s) || isSecondSpot(s), s -> spotBonus(s) + (isAnchor(s) ? 1 : 0));
+        if (spot.isPresent()) {
+            steps.add(new Step(spot.get().spot(), StepRole.SPOT, stay(spot.get().spot(), false), null));
+            taken.add(spot.get().spot());
+        }
+        steps.add(new Step(cafe, StepRole.CAFE, 60, spot.map(p -> walkMinutes(p.meters())).orElse(null)));
+        Optional<GridPick> meal = pick(grid, cafe, cafe, taste, taken, used,
+                s -> s.category() == PlaceCategory.RESTAURANT, s -> MEAL_BONUS.getOrDefault(s.detail(), 0));
+        if (meal.isEmpty()) {
+            return Optional.empty();
+        }
+        steps.add(new Step(meal.get().spot(), StepRole.MEAL, 70, walkMinutes(meal.get().meters())));
+        steps.stream().filter(step -> step.place() != cafe).forEach(step -> used.merge(step.place().id(), 1, Integer::sum));
+        used.merge(cafe.id(), 1, Integer::sum);
+        return Optional.of(toPlan(cafe, steps));
+    }
+
     private record GridPick(Spot spot, double meters, double score) {
     }
 
     /** prev 에서 700m, 중심 장소에서 1km 안의 후보 중 점수가 가장 높은 곳 (같으면 id 작은 곳) */
-    private static Optional<GridPick> pick(PlaceGrid grid, Spot anchor, Spot prev, Set<String> taste, Set<String> usedNames,
+    private static Optional<GridPick> pick(PlaceGrid grid, Spot anchor, Spot prev, Set<String> taste, List<Spot> taken,
                                            Map<Long, Integer> used, Predicate<Spot> allowed, ToIntFunction<Spot> bonus) {
         return grid.near(prev.lat(), prev.lng(), LEG_MAX_M).stream()
-                .filter(n -> n.spot().id() != anchor.id() && !usedNames.contains(n.spot().normalizedName()))
+                .filter(n -> n.spot().id() != anchor.id() && !alreadyTaken(n.spot(), taken))
                 .filter(n -> allowed.test(n.spot()))
                 .filter(n -> Geo.distanceMeters(anchor.lat(), anchor.lng(), n.spot().lat(), n.spot().lng()) <= FROM_ANCHOR_MAX_M)
                 .map(n -> new GridPick(n.spot(), n.meters(), score(n.spot(), n.meters(), taste) + bonus.applyAsInt(n.spot())
                         - REUSE_PENALTY * used.getOrDefault(n.spot().id(), 0)))
                 .max(Comparator.comparingDouble(GridPick::score).thenComparing(p -> -p.spot().id()));
+    }
+
+    /** 같은 장소로 보는 거리: 출처마다 이름이 달라 따로 들어간 같은 가게 ("곽암" 식당 = "곽암아트카페갤러리") */
+    static final double SAME_PLACE_M = 50;
+
+    /** 이미 고른 곳과 같은 장소인가: 이름이 같거나, 50m 안에서 한 이름이 다른 이름을 품고 있으면 */
+    static boolean alreadyTaken(Spot s, List<Spot> taken) {
+        for (Spot t : taken) {
+            String a = t.normalizedName();
+            String b = s.normalizedName();
+            if (t.id() == s.id() || a.equals(b)) {
+                return true;
+            }
+            boolean contains = a.length() >= 2 && b.length() >= 2 && (a.contains(b) || b.contains(a));
+            if (contains && Geo.distanceMeters(t.lat(), t.lng(), s.lat(), s.lng()) < SAME_PLACE_M) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static double score(Spot s, double meters, Set<String> taste) {
@@ -208,7 +260,9 @@ public final class CoursePlanner {
         Set<String> keywords = new LinkedHashSet<>();
         for (Step step : steps) {
             for (String code : step.place().keywords()) {
-                boolean spotTag = step.role() == StepRole.SPOT && !code.startsWith("budget-") && !code.equals("indoor") && !code.equals("outdoor");
+                // 구경거리와 중심 장소(목적지 카페 포함)는 분위기·활동 모두
+                boolean spotTag = (step.role() == StepRole.SPOT || step.place() == anchor)
+                        && !code.startsWith("budget-") && !code.equals("indoor") && !code.equals("outdoor") && !code.equals("food-tour");
                 // 식당·카페는 분위기만 (맛집 투어·예산은 아래에서 따로)
                 if (spotTag || (step.role() != StepRole.SPOT && MOOD.contains(code))) {
                     keywords.add(code);

@@ -161,4 +161,46 @@ class CoursePlannerTests {
         grid.add(badged(spot(5, "모범식당", PlaceCategory.RESTAURANT, "백반/한정식", 500, Set.of("indoor"), false, false)));
         assertThat(CoursePlanner.plan(ANCHOR, grid).orElseThrow().steps().get(2).place().name()).isEqualTo("모범식당");
     }
+
+    @Test
+    void 관광공사가_소개한_카페는_그_카페를_중심으로_코스를_만든다() {
+        CoursePlanner.Spot gallery = spot(40, "아트카페갤러리", PlaceCategory.CAFE, "FD050100", 0,
+                Set.of("cozy", "exhibition", "indoor", "budget-low"), true, false);
+        CoursePlanner.Spot chainTour = spot(41, "체인카페", PlaceCategory.CAFE, "카페", 0, Set.of(), true, true);
+        assertThat(CoursePlanner.isDestinationCafe(gallery)).isTrue();
+        assertThat(CoursePlanner.isDestinationCafe(chainTour)).isFalse();
+        assertThat(CoursePlanner.isDestinationCafe(spot(42, "동네카페", PlaceCategory.CAFE, "카페", 0, Set.of(), false, false))).isFalse();
+
+        PlaceGrid grid = new PlaceGrid();
+        grid.add(gallery);
+        grid.add(spot(43, "바닷가산책길", PlaceCategory.ATTRACTION, "VE040300", 300, Set.of("walk", "quiet", "outdoor"), true, false));
+        grid.add(spot(44, "횟집", PlaceCategory.RESTAURANT, "횟집", -300, Set.of("food-tour", "indoor", "budget-high"), false, false));
+
+        CoursePlanner.Plan plan = CoursePlanner.planAroundCafe(gallery, grid, new java.util.HashMap<>()).orElseThrow();
+
+        assertThat(plan.summary()).isEqualTo("바닷가산책길 → 아트카페갤러리 → 횟집");
+        assertThat(plan.anchor().id()).isEqualTo(40);
+        assertThat(plan.steps()).extracting(CoursePlanner.Step::role).containsExactly(StepRole.SPOT, StepRole.CAFE, StepRole.MEAL);
+        assertThat(plan.steps().get(0).walkMinutes()).isNull();
+        assertThat(plan.keywords()).contains("exhibition", "cozy", "walk");
+    }
+
+    @Test
+    void 목적지_카페_근처에_식당이_없으면_만들지_않는다() {
+        CoursePlanner.Spot gallery = spot(40, "아트카페", PlaceCategory.CAFE, "FD050100", 0, Set.of("cozy"), true, false);
+        PlaceGrid grid = new PlaceGrid();
+        grid.add(gallery);
+        assertThat(CoursePlanner.planAroundCafe(gallery, grid, new java.util.HashMap<>())).isEmpty();
+    }
+
+    @Test
+    void 이름이_달라_따로_들어간_같은_가게는_다시_고르지_않는다() {
+        CoursePlanner.Spot gallery = spot(40, "곽암아트카페갤러리", PlaceCategory.CAFE, "FD050100", 0, Set.of("cozy"), true, false);
+        PlaceGrid grid = new PlaceGrid();
+        grid.add(gallery);
+        grid.add(spot(45, "곽암", PlaceCategory.RESTAURANT, "백반/한정식", 3, Set.of("indoor"), false, false)); // 같은 건물
+        grid.add(spot(46, "옆집식당", PlaceCategory.RESTAURANT, "백반/한정식", 200, Set.of("indoor"), false, false));
+        assertThat(CoursePlanner.planAroundCafe(gallery, grid, new java.util.HashMap<>()).orElseThrow().summary())
+                .isEqualTo("곽암아트카페갤러리 → 옆집식당");
+    }
 }

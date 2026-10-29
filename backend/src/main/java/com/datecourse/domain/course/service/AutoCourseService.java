@@ -27,6 +27,9 @@ import com.datecourse.domain.place.entity.PlaceCategory;
  * 이번에 못 만든 예전 자동 코스는 반응이 없으면 지우고, 있으면 숨긴다.
  * 시도 경계 너머의 카페·식당은 보지 않는다 (경계 바로 옆 명소는 후보가 조금 적다).
  *
+ * 목적지 카페 코스: 관광공사가 소개하고 체인이 아닌 카페 중 명소 코스에 안 들어간 곳은 그 카페를 중심으로
+ * (근처 구경거리) → 카페 → 식당 코스를 만든다 (갤러리 카페·바다 앞 카페 같은 "구석구석" 좋은 곳이 빠지지 않게).
+ *
  * 동네 코스: 명소 코스가 1.5km 안에 하나도 없는 동네(주거지·역세권)는 소품샵·서점·놀거리를 중심으로
  * 같은 규칙(구경 → 카페 → 식당)으로 만든다. 약 1km 칸마다 가장 나은 구경거리 하나를 중심으로 해 본다.
  */
@@ -77,6 +80,7 @@ public class AutoCourseService {
         PlaceGrid grid = new PlaceGrid();
         List<CoursePlanner.Spot> anchors = new ArrayList<>();
         List<CoursePlanner.Spot> neighborhood = new ArrayList<>();
+        List<CoursePlanner.Spot> cafes = new ArrayList<>();
         jdbc.query("""
                 SELECT p.id, p.name, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
                        (SELECT string_agg(k.code, ',') FROM place_keyword pk JOIN keyword k ON k.id = pk.keyword_id
@@ -97,6 +101,8 @@ public class AutoCourseService {
                 anchors.add(spot);
             } else if (CoursePlanner.isNeighborhoodAnchor(spot)) {
                 neighborhood.add(spot);
+            } else if (CoursePlanner.isDestinationCafe(spot)) {
+                cafes.add(spot);
             }
         }, sido);
         List<CoursePlanner.Plan> plans = new ArrayList<>();
@@ -105,8 +111,15 @@ public class AutoCourseService {
             CoursePlanner.plan(anchor, grid, used).ifPresent(plans::add);
         }
         int landmark = plans.size();
+        for (CoursePlanner.Spot cafe : cafes) {
+            // 명소 코스에 이미 들어간 카페는 그 코스로 충분하다
+            if (!used.containsKey(cafe.id())) {
+                CoursePlanner.planAroundCafe(cafe, grid, used).ifPresent(plans::add);
+            }
+        }
+        int cafeCourses = plans.size() - landmark;
         plans.addAll(planNeighborhoods(neighborhood, plans, grid, used));
-        log.info("자동 코스: {} 명소 {}개 + 동네 {}개", sido, landmark, plans.size() - landmark);
+        log.info("자동 코스: {} 명소 {}개 + 카페 {}개 + 동네 {}개", sido, landmark, cafeCourses, plans.size() - landmark - cafeCourses);
         return plans;
     }
 
