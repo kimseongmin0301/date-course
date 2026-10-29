@@ -149,6 +149,11 @@ public class CourseQueryRepository {
 
     /** (lat, lng) 에서 meters 안의 categories 장소 (거리 계산 전 사각형으로 거름) */
     public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories) {
+        return candidates(lat, lng, meters, categories, null);
+    }
+
+    /** nameContains: 정리한 이름이나 업종 이름에 이 말이 든 곳만 (null 이면 모두) */
+    public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories, String nameContains) {
         return jdbc.sql("""
                 SELECT p.id, p.name, p.branch, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
                        p.road_address, p.lot_address, p.phone, p.image_url, p.description,
@@ -159,8 +164,11 @@ public class CourseQueryRepository {
                        EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge
                 FROM place p
                 WHERE p.closed_at IS NULL AND p.category IN (:categories)
-                  AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax""")
+                  AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax
+                  AND (CAST(:name AS varchar) IS NULL OR p.normalized_name LIKE CAST(:name AS varchar)
+                       OR replace(p.detail_category, ' ', '') LIKE CAST(:name AS varchar))""")
                 .param("categories", categories)
+                .param("name", nameContains == null ? null : "%" + nameContains + "%")
                 .param("latMin", lat - Geo.latDelta(meters)).param("latMax", lat + Geo.latDelta(meters))
                 .param("lngMin", lng - Geo.lngDelta(meters, lat)).param("lngMax", lng + Geo.lngDelta(meters, lat))
                 .query((rs, n) -> {

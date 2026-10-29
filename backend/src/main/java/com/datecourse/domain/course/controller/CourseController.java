@@ -37,6 +37,14 @@ public class CourseController {
         return courseQueryService.alternatives(id, order);
     }
 
+    /** 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름에 q 가 든 곳 가까운 순 10곳 */
+    @GetMapping("/api/places/nearby")
+    public List<AlternativeResponse> nearbyPlaces(@RequestParam(required = false) Double lat,
+                                                  @RequestParam(required = false) Double lng,
+                                                  @RequestParam(required = false) String q) {
+        return courseQueryService.nearbyPlaces(lat, lng, q);
+    }
+
     /** 코스 상세 (단계별 장소). 없거나 숨긴 코스는 404 */
     @GetMapping("/api/courses/{id}")
     public CourseDetailResponse detail(@PathVariable long id) {

@@ -169,4 +169,33 @@ class CourseQueryServiceTests {
         given(repository.keywords(List.of(7L))).willReturn(Map.of());
         assertThatThrownBy(() -> service.alternatives(7, 9)).isInstanceOf(CourseException.class);
     }
+
+    @Test
+    void 코스에_넣을_장소는_이름이_같은_곳_먼저_그다음_가까운_순() {
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq("카페"))).willReturn(List.of(
+                cand(21, "동네카페", "cafe", "카페", 100, false, false),
+                cand(22, "카페", "cafe", "카페", 800, false, false),
+                cand(23, "카페모모", "cafe", "카페", 500, true, false),
+                cand(24, "먼카페", "cafe", "카페", 2500, false, false)));  // 2km 밖
+
+        List<com.datecourse.domain.course.dto.AlternativeResponse> found = service.nearbyPlaces(37.5, 127.0, " 카페 ");
+
+        assertThat(found).extracting(a -> a.place().name()).containsExactly("카페", "카페모모", "동네카페");
+        assertThat(found.get(1).reasons()).contains("모범음식점");
+    }
+
+    @Test
+    void 장소_찾기는_검색어가_있어야_한다() {
+        assertThatThrownBy(() -> service.nearbyPlaces(37.5, 127.0, "  ")).isInstanceOf(CourseException.class);
+        assertThatThrownBy(() -> service.nearbyPlaces(null, 127.0, "카페")).isInstanceOf(CourseException.class);
+    }
+
+    @Test
+    void 업종으로_찾으면_이름에_글자만_든_가게보다_그_업종이_먼저() {
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq("서점"))).willReturn(List.of(
+                cand(31, "한솥도시락역삼세무서점", "restaurant", "김밥/만두/분식", 100, false, false),
+                cand(32, "동네책방", "shop", "서점", 600, false, false)));
+
+        assertThat(service.nearbyPlaces(37.5, 127.0, "서점")).extracting(a -> a.place().name()).containsExactly("동네책방", "한솥도시락역삼세무서점");
+    }
 }

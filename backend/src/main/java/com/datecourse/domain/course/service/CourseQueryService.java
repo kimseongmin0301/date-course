@@ -183,6 +183,46 @@ public class CourseQueryService {
     private record Scored(CourseQueryRepository.Candidate c, double meters, double score) {
     }
 
+    /** 코스에 넣을 장소 찾기: 이 위치에서 2km 안, 이름에 검색어가 든 곳을 가까운 순으로 */
+    static final double NEARBY_RADIUS_M = 2000;
+    public static final int NEARBY_MAX = 10;
+    private static final List<String> ALL_CATEGORIES = List.of("attraction", "culture", "activity", "shop", "cafe", "restaurant", "bar");
+
+    public List<AlternativeResponse> nearbyPlaces(Double lat, Double lng, String query) {
+        if (lat == null || lng == null || !Geo.inKorea(lat, lng)) {
+            throw CourseException.badRequest("지도에서 국내 지역을 골라 주세요.");
+        }
+        String q = PlaceNames.normalize(query == null ? "" : query.strip());
+        if (q.isEmpty() || q.length() > 30) {
+            throw CourseException.badRequest("찾을 가게나 장소 이름을 적어 주세요.");
+        }
+        double la = Math.round(lat * 1000) / 1000.0;
+        double ln = Math.round(lng * 1000) / 1000.0;
+        return cache.getOrLoad("places:nearby:" + la + ":" + ln + ":" + q, SEARCH_TTL, new TypeReference<List<AlternativeResponse>>() { },
+                () -> repository.candidates(la, ln, NEARBY_RADIUS_M, ALL_CATEGORIES, q).stream()
+                        .map(c -> new Scored(c, Geo.distanceMeters(la, ln, c.lat(), c.lng()), 0))
+                        .filter(x -> x.meters() <= NEARBY_RADIUS_M)
+                        // 이름이 같은 곳 → 이름이 검색어로 시작 → 업종이 검색어("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순
+                        .sorted(Comparator.comparingInt((Scored x) -> nearbyRank(x.c(), q)).thenComparingDouble(Scored::meters))
+                        .limit(NEARBY_MAX)
+                        .map(x -> new AlternativeResponse(toPlace(x.c()),
+                                reasons(x.c().badge(), x.c().tour(), x.c().sbiz(), x.c().franchise(), x.c().category()),
+                                (int) Math.round(x.meters())))
+                        .toList());
+    }
+
+    static int nearbyRank(CourseQueryRepository.Candidate c, String q) {
+        String name = c.normalizedName();
+        if (name.equals(q)) {
+            return 0;
+        }
+        if (name.startsWith(q)) {
+            return 1;
+        }
+        String detail = c.detailCategory() == null ? "" : c.detailCategory().replace(" ", "");
+        return detail.contains(q) ? 2 : 3;
+    }
+
     private static final Map<StepRole, List<String>> ROLE_CATEGORIES = Map.of(
             StepRole.SPOT, List.of("attraction", "culture", "shop", "activity"),
             StepRole.CAFE, List.of("cafe"),

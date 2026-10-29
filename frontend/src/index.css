@@ -741,3 +741,117 @@ button:disabled {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* ── 내 일정: 날짜·출발 시간, 시간표, 장소 넣기 ── */
+.schedule-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.schedule-bar label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.schedule-bar input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.schedule-end {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.small-button {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.step-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.step-time strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.step-time select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 0.8rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.step-tools {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.step-tools button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.add-slot {
+  padding: 2px 0 2px 42px;
+}
+
+.add-slot .link-button {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.add-search {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.add-search input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.add-search button {
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--step);
+  color: var(--bg);
+  font-weight: 600;
+}
