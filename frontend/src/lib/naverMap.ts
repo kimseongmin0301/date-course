@@ -28,11 +28,37 @@ export function loadNaverMaps(): Promise<typeof naver.maps> {
   return loading
 }
 
-/** 숫자 핀 (코스 순위, 단계 순서). variant: 'rank' 순위, 'dim' 흐리게, 'step' 단계, 'target' 검색으로 고른 곳 */
-export function pinIcon(label: string | number, variant: 'rank' | 'dim' | 'step' | 'target' = 'rank'): naver.maps.HtmlIcon {
+// 지도 핀 세 가지는 모양부터 다르게 한다 (순위 "2"와 단계 "2"를 헷갈린다는 의견이 있었음)
+
+/** 코스 순위: 분홍 물방울 마커 + 순위 숫자 (끝이 코스 위치를 가리킴) */
+export function rankIcon(rank: number): naver.maps.HtmlIcon {
   return {
-    content: `<div class="pin pin-${variant}">${label}</div>`,
+    content: `<div class="pin-rank"><span>${rank}</span></div>`,
+    anchor: new naver.maps.Point(15, 36),
+  }
+}
+
+/** 다른 코스를 고른 동안의 순위 핀: 숫자 없는 작은 회색 점 */
+export function dimIcon(): naver.maps.HtmlIcon {
+  return {
+    content: '<div class="pin-dim"></div>',
+    anchor: new naver.maps.Point(7, 7),
+  }
+}
+
+/** 코스 단계: 어두운 이름표 "① 카페" (순서 + 역할) */
+export function stepIcon(order: number, role: string): naver.maps.HtmlIcon {
+  return {
+    content: `<div class="pin-step"><b>${order}</b>${role}</div>`,
     anchor: new naver.maps.Point(15, 15),
+  }
+}
+
+/** 검색으로 고른 곳: 파란 점 */
+export function targetIcon(): naver.maps.HtmlIcon {
+  return {
+    content: '<div class="pin-target"></div>',
+    anchor: new naver.maps.Point(11, 11),
   }
 }
 

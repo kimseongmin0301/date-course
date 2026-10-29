@@ -4,9 +4,9 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { api } from '../lib/api'
-import { formatDistance, formatMinutes, parseKeywords } from '../lib/format'
+import { formatDistance, formatMinutes, parseKeywords, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
-import { distanceMeters, pinIcon, visibleRadius, zoomForRadius } from '../lib/naverMap'
+import { dimIcon, distanceMeters, rankIcon, stepIcon, visibleRadius, zoomForRadius } from '../lib/naverMap'
 import type { CourseCard, CourseSearchResponse, LocationResult } from '../lib/types'
 import { useMap } from '../map/context'
 
@@ -132,7 +132,7 @@ export default function SearchPage() {
       const marker = new naver.maps.Marker({
         map,
         position: new naver.maps.LatLng(c.centerLat, c.centerLng),
-        icon: pinIcon(i + 1, chosen ? 'dim' : 'rank'),
+        icon: chosen ? dimIcon() : rankIcon(i + 1),
         title: c.title,
         zIndex: chosen ? 1 : 100 - i,
       })
@@ -143,7 +143,7 @@ export default function SearchPage() {
       const path = chosen.steps.map((s) => new naver.maps.LatLng(s.lat, s.lng))
       overlays.push(new naver.maps.Polyline({ map, path, strokeColor: '#e8546b', strokeWeight: 4, strokeOpacity: 0.85, strokeStyle: 'shortdash' }))
       chosen.steps.forEach((s) => {
-        overlays.push(new naver.maps.Marker({ map, position: new naver.maps.LatLng(s.lat, s.lng), icon: pinIcon(s.order, 'step'), title: s.name, zIndex: 200 }))
+        overlays.push(new naver.maps.Marker({ map, position: new naver.maps.LatLng(s.lat, s.lng), icon: stepIcon(s.order, ROLE_LABEL[s.role]), title: s.name, zIndex: 200 }))
       })
     }
     return () => {

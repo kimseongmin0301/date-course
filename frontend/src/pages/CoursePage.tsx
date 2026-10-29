@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { CATEGORY_LABEL, formatMinutes, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
-import { jumpTo, pinIcon } from '../lib/naverMap'
+import { jumpTo, stepIcon } from '../lib/naverMap'
 import type { CourseDetail } from '../lib/types'
 import { useMap } from '../map/context'
 
@@ -40,7 +40,7 @@ export default function CoursePage() {
     const overlays: { setMap(m: naver.maps.Map | null): void }[] = [
       new naver.maps.Polyline({ map, path, strokeColor: '#e8546b', strokeWeight: 4, strokeOpacity: 0.85, strokeStyle: 'shortdash' }),
       ...course.steps.map(
-        (s) => new naver.maps.Marker({ map, position: new naver.maps.LatLng(s.place.lat, s.place.lng), icon: pinIcon(s.order, 'step'), title: s.place.name }),
+        (s) => new naver.maps.Marker({ map, position: new naver.maps.LatLng(s.place.lat, s.place.lng), icon: stepIcon(s.order, ROLE_LABEL[s.role]), title: s.place.name }),
       ),
     ]
     const bounds = path.slice(1).reduce((b, p) => b.extend(p), new naver.maps.LatLngBounds(path[0], path[0]))

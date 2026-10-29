@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../lib/api'
-import { pinIcon } from '../lib/naverMap'
+import { targetIcon } from '../lib/naverMap'
 import type { LocationResult } from '../lib/types'
 import { useMap } from '../map/context'
 
@@ -29,7 +29,7 @@ export default function LocationSearch({ onPick }: { onPick: (location: Location
     const marker = new naver.maps.Marker({
       map,
       position: new naver.maps.LatLng(picked.lat, picked.lng),
-      icon: pinIcon('●', 'target'),
+      icon: targetIcon(),
       title: picked.name,
       zIndex: 300,
     })
