@@ -326,7 +326,7 @@ export default function CoursePage() {
             <div className="photo-row">
               {p.items.map((img) => (
                 <a key={img.thumbnail} href={more} target="_blank" rel="noreferrer" title={img.title}>
-                  <img src={img.thumbnail} alt={img.title} loading="lazy" referrerPolicy="no-referrer" />
+                  <img src={img.thumbnail} alt={img.title} referrerPolicy="no-referrer" />
                 </a>
               ))}
             </div>
