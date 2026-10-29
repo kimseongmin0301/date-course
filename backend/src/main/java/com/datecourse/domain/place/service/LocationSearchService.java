@@ -4,12 +4,15 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.datecourse.domain.collector.util.PlaceNames;
+import com.datecourse.domain.collector.util.Regions;
 import com.datecourse.domain.place.client.NaverGeocodeClient;
 import com.datecourse.domain.place.dto.LocationResult;
 import com.datecourse.domain.place.exception.PlaceException;
@@ -19,8 +22,9 @@ import com.datecourse.global.cache.JsonCache;
 import tools.jackson.core.type.TypeReference;
 
 /**
- * 지역 검색: "성수동", "강남구" 같은 지역 이름, "별마당도서관" 같은 명소, "강남대로 396" 같은 주소.
- * 지역·명소는 우리 장소 데이터로(무료), 주소는 네이버 Geocoding 으로 찾는다.
+ * 지역 검색: "성수동", "강남구" 같은 지역 이름, "반석역" 같은 역, "별마당도서관" 같은 명소, "강남대로 396" 같은 주소.
+ * 지역·역·명소는 우리 장소 데이터로(무료), 주소는 네이버 Geocoding 으로 찾는다 (Geocoding 은 역·가게 이름은 못 찾음).
+ * "대전 반석역"처럼 앞에 시도를 붙이면 그 시도 안에서만 찾는다 (같은 이름의 역·동이 여러 도시에 있어서).
  * Geocoding 은 무료 이용량(월 300만 건)을 넘지 않게 사이트 전체 하루 geocodeDailyLimit 번까지만 부르고,
  * 결과는 검색어마다 Redis 에 하루 둔다.
  */
@@ -55,10 +59,25 @@ public class LocationSearchService {
         return q;
     }
 
-    /** 끝의 시·군·구·동·읍·면을 뗀다 (두 글자 이상 남을 때만) */
+    /** 검색어 = (시도) + 찾을 말. 시도는 뒤에 말이 더 있을 때만 본다 ("서울숲" 은 시도가 아님) */
+    record Query(String sido, String term) {
+    }
+
+    static Query parse(String q) {
+        String[] tokens = q.split(" ", 2);
+        if (tokens.length == 2 && tokens[0].length() <= 5) {
+            String sido = Regions.canonicalSido(tokens[0]);
+            if (sido != null) {
+                return new Query(sido, tokens[1]);
+            }
+        }
+        return new Query(null, q);
+    }
+
+    /** 끝의 시·군·구·동·읍·면·역을 뗀다 (두 글자 이상 남을 때만) */
     static String areaPrefix(String q) {
         String compact = q.replace(" ", "");
-        if (compact.length() >= 3 && "시군구동읍면".indexOf(compact.charAt(compact.length() - 1)) >= 0) {
+        if (compact.length() >= 3 && "시군구동읍면역".indexOf(compact.charAt(compact.length() - 1)) >= 0) {
             return compact.substring(0, compact.length() - 1);
         }
         return compact;
@@ -71,10 +90,21 @@ public class LocationSearchService {
     }
 
     private List<LocationResult> load(String q) {
-        List<LocationResult> result = new ArrayList<>(repository.areas(areaPrefix(q), 4));
-        String normalized = PlaceNames.normalize(q);
+        Query query = parse(q);
+        String term = query.term().replace(" ", "");
+        String base = areaPrefix(query.term());
+        List<LocationResult> result = new ArrayList<>();
+        if (term.length() >= 2 && term.endsWith("역")) {
+            result.addAll(repository.stations(term, PlaceNames.normalize(term), query.sido(), 3));
+        }
+        result.addAll(repository.areas(base, query.sido(), 4));
+        if (base.length() >= 2 && !term.matches(".*[시군구]$")) {
+            // 시·군·구가 아니면 법정동도 본다 ("반석역" → 반석동: 행정동으로는 노은3동이라 위에서 안 나옴)
+            result.addAll(repository.legalDongs(base + "동", query.sido(), 2));
+        }
+        String normalized = PlaceNames.normalize(query.term());
         if (normalized.length() >= 2) {
-            result.addAll(repository.landmarks(normalized, 5));
+            result.addAll(repository.landmarks(normalized, query.sido(), 5));
         }
         if (geocoder.configured() && geocodeAllowed()) {
             for (NaverGeocodeClient.Address a : geocoder.geocode(q)) {
@@ -83,7 +113,9 @@ public class LocationSearchService {
                         hasRoad ? a.jibunAddress() : null, a.lat(), a.lng(), 500));
             }
         }
-        return result.stream().limit(MAX_RESULTS).toList();
+        // 같은 이름·같은 동네가 여러 방법으로 찾아지면 하나만
+        Set<String> seen = new HashSet<>();
+        return result.stream().filter(r -> seen.add(r.kind() + "|" + r.name() + "|" + r.detail())).limit(MAX_RESULTS).toList();
     }
 
     /** 오늘(한국 시간) Geocoding 을 몇 번 불렀는지 세어 한도 안이면 true. Redis 가 안 되면 캐시도 안 되므로 부르지 않는다 */

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -43,6 +44,29 @@ class LocationSearchServiceTests {
         assertThat(LocationSearchService.areaPrefix("강남구")).isEqualTo("강남");
         assertThat(LocationSearchService.areaPrefix("중구")).isEqualTo("중구");
         assertThat(LocationSearchService.areaPrefix("별마당도서관")).isEqualTo("별마당도서관");
+        assertThat(LocationSearchService.areaPrefix("반석역")).isEqualTo("반석");
+    }
+
+    @Test
+    void 앞의_시도는_뒤에_말이_있을_때만_거르는_조건() {
+        assertThat(LocationSearchService.parse("대전 반석역")).isEqualTo(new LocationSearchService.Query("대전광역시", "반석역"));
+        assertThat(LocationSearchService.parse("광주 충장로")).isEqualTo(new LocationSearchService.Query("전남광주통합특별시", "충장로"));
+        assertThat(LocationSearchService.parse("서울숲")).isEqualTo(new LocationSearchService.Query(null, "서울숲"));
+        assertThat(LocationSearchService.parse("강남대로 396")).isEqualTo(new LocationSearchService.Query(null, "강남대로 396"));
+    }
+
+    @Test
+    void 역은_역_이름을_붙인_가게들로_찾고_법정동도_본다() {
+        given(repository.stations(eq("반석역"), eq("반석역"), eq("대전광역시"), anyInt()))
+                .willReturn(List.of(new LocationResult("station", "반석역", "대전광역시 유성구", 36.39, 127.31, 700)));
+        given(repository.legalDongs(eq("반석동"), eq("대전광역시"), anyInt()))
+                .willReturn(List.of(new LocationResult("area", "반석동", "대전광역시 유성구", 36.39, 127.31, 1500)));
+        given(cache.increment(anyString(), any())).willReturn(1L);
+
+        List<LocationResult> result = service.search("대전 반석역");
+
+        assertThat(result).extracting(LocationResult::kind).containsExactly("station", "area");
+        assertThat(result.get(0).name()).isEqualTo("반석역");
     }
 
     @Test
@@ -55,8 +79,8 @@ class LocationSearchServiceTests {
 
     @Test
     void 지역_명소_주소_순서로_모은다() {
-        given(repository.areas(eq("성수"), anyInt())).willReturn(List.of(new LocationResult("area", "성수1가1동", "서울특별시 성동구", 37.54, 127.05, 1500)));
-        given(repository.landmarks(eq("성수동"), anyInt())).willReturn(List.of(new LocationResult("place", "성수동 카페거리", "서울", 37.54, 127.05, 1500)));
+        given(repository.areas(eq("성수"), isNull(), anyInt())).willReturn(List.of(new LocationResult("area", "성수1가1동", "서울특별시 성동구", 37.54, 127.05, 1500)));
+        given(repository.landmarks(eq("성수동"), isNull(), anyInt())).willReturn(List.of(new LocationResult("place", "성수동 카페거리", "서울", 37.54, 127.05, 1500)));
         given(cache.increment(anyString(), any())).willReturn(1L);
         given(geocoder.geocode("성수동")).willReturn(List.of(new NaverGeocodeClient.Address("", "서울특별시 성동구 성수동1가", 37.54, 127.04)));
 

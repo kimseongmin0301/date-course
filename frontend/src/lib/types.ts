@@ -90,7 +90,7 @@ export interface CourseDetail {
 }
 
 export interface LocationResult {
-  kind: 'area' | 'place' | 'address'
+  kind: 'area' | 'station' | 'place' | 'address'
   name: string
   detail: string | null
   lat: number

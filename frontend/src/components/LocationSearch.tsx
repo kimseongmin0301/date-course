@@ -6,6 +6,7 @@ import { useMap } from '../map/context'
 
 const KIND_LABEL: Record<LocationResult['kind'], string> = {
   area: '지역',
+  station: '역',
   place: '명소',
   address: '주소',
 }

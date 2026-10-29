@@ -175,7 +175,7 @@ cd backend
 | GET | `/api/health` | `{ status: "ok" }` |
 | GET | `/api/keywords` | 키워드 칩 `[{ code, name, kind }]` (분위기 → 활동 → 실내외 → 예산) |
 | GET | `/api/courses?lat=&lng=&radius=&kw=&page=` | 코스 순위 목록. 지도 가운데에서 `radius`(m, 기본 3000, 500~20000) 안의 코스 가운데, `kw` 0~3개(`kw=quiet,cozy` 또는 `kw=quiet&kw=cozy`), `page` 0~9(한 쪽 20개) → `{ total, page, size, courses: [{ id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distanceMeters, keywords, matchedKeywords, steps: [{ order, role, stayMinutes, walkMinutes, placeId, name, branch, category, lat, lng }] }] }`. 국외 좌표·반경·모르는 키워드·4개 이상은 400 |
-| GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `area` 시군구·동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때). `radius` 는 지도에 보여줄 반경 제안 |
+| GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `station` 역(지하철역 좌표가 데이터에 없어서 이름·지점명에 "반석역"이 든 가게 2곳 이상의 평균 좌표, 시군구마다 하나, 실제 역과 약 100m), `area` 시군구·행정동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등)과 법정동(지번 주소의 동: "반석동"은 행정동으로 노은3동이라), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때. 역·가게 이름은 못 찾음). "대전 반석역"처럼 앞에 시도를 쓰면 그 시도 안에서만(같은 이름이 여러 도시에 있어서). `radius` 는 지도에 보여줄 반경 제안 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
 
 ### 순위
