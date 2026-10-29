@@ -11,6 +11,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 
+import com.datecourse.domain.collector.service.ModelRestaurantImporter;
 import com.datecourse.domain.collector.service.PlaceKeywordTagger;
 import com.datecourse.domain.collector.service.SbizImporter;
 import com.datecourse.domain.collector.service.TourCollector;
@@ -26,6 +27,7 @@ import com.datecourse.domain.course.service.CourseScoreService;
  *   ./gradlew bootRun --args="--collect=keywords"        장소 키워드 다시 붙이기 + 자동 코스 다시 만들기 (규칙을 고친 뒤)
  *   ./gradlew bootRun --args="--collect=courses"         자동 코스 다시 만들기 + 순위 점수
  *   ./gradlew bootRun --args="--collect=scores"          코스 순위 점수만 다시 계산 (매일 새벽에도 저절로 돔)
+ *   ./gradlew bootRun --args="--collect=model --path=../data/model"  모범음식점 CSV → 지정 표시, 그 뒤 코스·점수 다시
  * tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 다시 만든다.
  */
 @Component
@@ -38,15 +40,17 @@ public class CollectorRunner implements ApplicationRunner {
     private final PlaceKeywordTagger tagger;
     private final AutoCourseService courses;
     private final CourseScoreService scores;
+    private final ModelRestaurantImporter model;
     private final ConfigurableApplicationContext context;
 
     public CollectorRunner(TourCollector tour, SbizImporter sbiz, PlaceKeywordTagger tagger, AutoCourseService courses,
-                           CourseScoreService scores, ConfigurableApplicationContext context) {
+                           CourseScoreService scores, ModelRestaurantImporter model, ConfigurableApplicationContext context) {
         this.tour = tour;
         this.sbiz = sbiz;
         this.tagger = tagger;
         this.courses = courses;
         this.scores = scores;
+        this.model = model;
         this.context = context;
     }
 
@@ -84,8 +88,13 @@ public class CollectorRunner implements ApplicationRunner {
                 case "keywords" -> afterPlacesChanged();
                 case "courses" -> rebuildCourses();
                 case "scores" -> scores.recalculate();
+                case "model" -> {
+                    String path = option(args, "path");
+                    model.importPath(Path.of(path == null ? "../data/model" : path));
+                    rebuildCourses();
+                }
                 default -> {
-                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores)", what.get(0));
+                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores, model)", what.get(0));
                     exitCode = 2;
                 }
             }
