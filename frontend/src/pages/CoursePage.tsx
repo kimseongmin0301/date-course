@@ -610,13 +610,21 @@ export default function CoursePage() {
           {saving ? '저장 중…' : saved && !unsaved ? '✓ 저장됨' : '💾 저장'}
         </button>
         <p className="save-state muted small">
-          {saveError
-            ? <span className="notice">{saveError}</span>
-            : saved
-              ? unsaved
-                ? '저장한 뒤 고친 내용이 있어요.'
-                : `${savedLabel(saved.at)}에 저장했어요. 다음에 와도 그대로예요.`
-              : '저장하면 이 브라우저로 다음에 와도 그대로 볼 수 있어요. (로그인 없음)'}
+          {saveError ? (
+            <span className="notice">{saveError}</span>
+          ) : saved ? (
+            unsaved ? (
+              '저장한 뒤 고친 내용이 있어요. 다시 저장해 주세요.'
+            ) : (
+              <>
+                {savedLabel(saved.at)}에 저장했어요. <Link to="/saved">내 저장</Link>에서 다시 볼 수 있어요.
+              </>
+            )
+          ) : (
+            <>
+              저장하면 이 브라우저에서 다음에 와도 그대로 열려요. 다른 기기에서도 보려면 <Link to="/saved">내 저장</Link>에서 코드를 만들어 주세요.
+            </>
+          )}
         </p>
       </div>
 

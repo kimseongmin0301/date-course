@@ -31,7 +31,7 @@ export default function SavedPage() {
     <section>
       <h1>내 저장</h1>
       <p className="muted small">
-        로그인 없이 이 브라우저의 쿠키로 구분해요. 브라우저를 바꾸거나 쿠키를 지우면 보이지 않으니, 다른 기기에서도 보려면 아래에서 코드를 만들어 주세요.
+        회원가입 없이 이 브라우저(쿠키)에 저장돼요. 브라우저를 바꾸거나 쿠키를 지우면 보이지 않으니, 다른 기기에서도 보려면 아래에서 코드를 만들어 주세요.
       </p>
       <AccountBox onChanged={load} />
       {error && <p className="notice">{error}</p>}
