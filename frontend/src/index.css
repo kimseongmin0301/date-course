@@ -813,8 +813,54 @@ button:disabled {
   font-weight: 700;
 }
 
-.step-time input[type='number'] {
-  width: 64px;
+/* 머무는 시간: −10 [ 60 ] +10 분 머물기 */
+.step-time .stay {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.stay-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.stay-input input {
+  width: 46px;
+  text-align: center;
+}
+
+.stay-input button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 6px;
+  min-width: 36px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.stay-input button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 휴대폰: 손가락으로 누르기 쉽게 크게, 글자는 16px (iOS 가 입력칸을 누를 때 확대하지 않게) */
+@media (pointer: coarse) {
+  .stay-input input {
+    width: 52px;
+    font-size: 16px;
+    padding: 6px 4px;
+  }
+
+  .stay-input button {
+    min-width: 44px;
+    padding: 6px 8px;
+  }
 }
 
 /* 도착 시간을 고정한 단계 */

@@ -26,6 +26,7 @@ import {
   type PlanStep,
 } from '../lib/plan'
 import type { AddressResult, AlternativeResponse, CourseDetail, NaverImage, Place } from '../lib/types'
+import StayInput from '../components/StayInput'
 import { useMap } from '../map/context'
 
 const LETTERS = 'ABCDEFGHIJ'
@@ -649,17 +650,10 @@ export default function CoursePage() {
                       aria-label={`${s.place.name} 도착 시간`}
                     />
                   </label>
-                  <label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={STAY_MAX}
-                      value={s.stayMinutes}
-                      onChange={(e) => setStay(i, e.target.valueAsNumber)}
-                      aria-label={`${s.place.name}에 머무는 시간(분)`}
-                    />
+                  <span className="stay">
+                    <StayInput value={s.stayMinutes} max={STAY_MAX} label={`${s.place.name}에 머무는 시간(분)`} onChange={(m) => setStay(i, m)} />
                     <span>분 머물기</span>
-                  </label>
+                  </span>
                   <span className="depart">→ {clockText(s.depart)} 출발</span>
                   {s.fixedArrive != null && (
                     <button type="button" className="link-button" onClick={() => setArrive(i, null)}>
