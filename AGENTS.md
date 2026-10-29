@@ -1,7 +1,7 @@
 # AGENTS.md: AI 작업 가이드
 
 이 문서는 AI 코딩 도구(Claude Code, ChatGPT/Codex, Cursor 등)가 이 저장소에서 작업할 때 따라야 할 규칙과 맥락입니다.
-사람이 읽어도 프로젝트 전체를 파악할 수 있게 작성합니다. 기획은 `docs/기획안.md` 에 있습니다.
+사람이 읽어도 프로젝트 전체를 파악할 수 있게 작성합니다. 기획은 `docs/기획안.md`, 데이터·코스·순위·검색의 실제 규칙은 `docs/동작방식.md` 에 있습니다. 규칙을 바꾸면 그 문서와 `README.md` 도 함께 고칩니다.
 
 ## 1. 프로젝트 한 줄 요약
 
@@ -12,7 +12,7 @@
 - **무료로만 운영합니다.** 그래서 쓰지 않는 것:
   - 카카오 API: 2026-07-21 부터 카카오맵 API 무료 쿼터는 계정의 첫 번째 앱에만 주고, 그 밖에는 결제 수단(비즈월렛)을 연결해야 합니다.
   - 네이버 검색 API: 2026-07 말 개발자센터 신규 신청이 닫혔고, 옮겨 간 NAVER API HUB 는 유료화가 예고됐습니다. 네이버지도 링크는 API 없이 검색 주소(`https://map.naver.com/p/search/{이름}`)로 겁니다.
-- 지도는 **네이버 지도 Dynamic Map 하나만** 무료 이용량(대표 계정 1개에 한해 월 6,000,000건) 안에서 씁니다. 넘으면 바로 과금되므로 콘솔의 이용 한도를 그 이하(5,000,000건)로 걸어 둡니다.
+- 네이버 클라우드 Maps 는 **Dynamic Map**(화면 지도, 대표 계정 1개에 월 6,000,000건 무료)과 **Geocoding**(주소 검색, 월 3,000,000건 무료)만 무료 이용량 안에서 씁니다. 넘으면 바로 과금되므로 콘솔의 이용 한도를 그 이하로 걸어 둡니다(6절).
 - 순위는 **큐레이션(관리자 등록 코스) + 사용자 반응**에 키워드 일치·동선·출처 일치를 더한 점수입니다. 범위는 전국이고, 큐레이션이 없는 지역은 코스를 자동으로 조합합니다.
 
 ## 2. 기술 스택
@@ -21,7 +21,8 @@
 |---|---|
 | 백엔드 | Java 17, Spring Boot 4.1, Gradle(wrapper), Spring Web MVC, Spring Data JPA |
 | DB | PostgreSQL 16. 힐링룸과 **같은 DB(`healing_room`)·계정**, 테이블은 전용 스키마 **`date_course`** 에만 (`currentSchema`, `hibernate.default_schema`) |
-| 프론트엔드 | React 19, TypeScript, Vite, react-router. 지도는 네이버 지도 JavaScript API v3 (Dynamic Map, 예정) |
+| 캐시 | Redis 7. 힐링룸과 같은 계정, 키 접두어 `healing-room:date-course:` (5-1절) |
+| 프론트엔드 | React 19, TypeScript, Vite, react-router. 지도는 네이버 지도 JavaScript API v3 (Dynamic Map) |
 | 테스트 | JUnit 5, MockMvc, Mockito (`@WebMvcTest`, `@MockitoBean`) |
 
 ## 3. 폴더 구조
@@ -29,13 +30,15 @@
 ```
 /
 ├─ AGENTS.md / CLAUDE.md / README.md / .editorconfig / .gitattributes (모든 글 파일 UTF-8, 줄바꿈 LF)
-├─ docs/기획안.md                  ← 기획 (원본은 Claude 문서, 바뀌면 함께 고침)
+├─ docs/기획안.md                  ← 기획 (무엇을 왜, 화면, 정한 것·남은 일)
+├─ docs/동작방식.md                ← 수집 → 키워드 → 코스 조합 → 순위 → 검색의 실제 규칙과 숫자
+├─ deploy/                         ← 서버 설치·배포 (systemd, nginx, ci-receive, install-root). 9절
 ├─ db/                             ← DB 스키마 SQL (수동 실행, 5절)
 ├─ backend/                        ← Spring Boot 앱 (Gradle 프로젝트 루트)
 │  ├─ .env.example                 ← 환경변수 형식 (.env 는 git 제외)
 │  └─ src/main/java/com/datecourse/
 │     ├─ DateCourseApplication.java
-│     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (예정: collector, admin)
+│     ├─ domain/{이름}/            ← 도메인마다 controller / service / repository / entity / dto (관리자 admin 은 예정)
 │     │  ├─ place/                 Place, PlaceSource(출처별 원본), PlaceMergeCandidate(중복 후보), PlaceKeyword
 │     │  │                         enum: PlaceCategory, PlaceSourceType(sbiz/tour), MergeStatus, KeywordOrigin
 │     │  ├─ place/ (검색)          LocationSearchController GET /api/locations, LocationSearchService(하루 캐시·Geocoding 한도),
@@ -227,7 +230,7 @@ cd backend
 
 ## 10. 진행 상황
 
-- [x] 기획안 (`docs/기획안.md`)
+- [x] 기획안 (`docs/기획안.md`), 동작 방식 (`docs/동작방식.md`)
 - [x] 뼈대: 백엔드(헬스 체크), 프론트(화면 주소, 서버 연결 확인)
 - [ ] 키 발급 (네이버 지도 Dynamic Map + 이용 한도, TourAPI)
 - [x] DB 설계, V1·V2 운영 DB 적용 (힐링룸 DB 의 `date_course` 스키마)
@@ -235,7 +238,7 @@ cd backend
 - [x] 장소 수집기: TourAPI, 상가(상권)정보 CSV, 중복 찾기 (서울 수집: 157,301곳, 두 출처에 다 있는 곳 446, 중복 후보 217)
 - [x] 전국 수집 (2026-10-28, 상가정보 202606 + TourAPI): 920,698곳, 두 출처에 다 있는 곳 8,580, 중복 후보 973, 541MB. 상가정보 4분 46초, TourAPI 43분
 - [x] Redis 캐시 (`JsonCache`, 힐링룸 계정·`healing-room:date-course:` 키), 키워드 목록 API
-- [x] DNS `date-course` A 기록 (가비아, 서버 IP 확인), 배포는 아직
+- [x] DNS `date-course` A 기록 (가비아, 서버 IP 확인)
 - [x] 장소 키워드 자동으로 붙이기 (`--collect=keywords`)
 - [x] 코스 자동 조합 (`--collect=courses`): 2026-10-29 전국 9,618개 (4단계 8,760, 3단계 858), 평균 246분, 53초
 - [x] 동네 코스(명소 없는 동네) 1,047개, 코스가 없으면 검색 반경 넓히기
