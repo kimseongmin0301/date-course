@@ -196,10 +196,11 @@ public class CourseQueryService {
         if (q.isEmpty() || q.length() > 30) {
             throw CourseException.badRequest("찾을 가게나 장소 이름을 적어 주세요.");
         }
+        List<String> words = searchWords(query);
         double la = Math.round(lat * 1000) / 1000.0;
         double ln = Math.round(lng * 1000) / 1000.0;
         return cache.getOrLoad("places:nearby:" + la + ":" + ln + ":" + q, SEARCH_TTL, new TypeReference<List<AlternativeResponse>>() { },
-                () -> repository.candidates(la, ln, NEARBY_RADIUS_M, ALL_CATEGORIES, q).stream()
+                () -> repository.candidates(la, ln, NEARBY_RADIUS_M, ALL_CATEGORIES, words).stream()
                         .map(c -> new Scored(c, Geo.distanceMeters(la, ln, c.lat(), c.lng()), 0))
                         .filter(x -> x.meters() <= NEARBY_RADIUS_M)
                         // 이름이 같은 곳 → 이름이 검색어로 시작 → 업종이 검색어("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순
@@ -209,6 +210,15 @@ public class CourseQueryService {
                                 reasons(x.c().badge(), x.c().tour(), x.c().sbiz(), x.c().franchise(), x.c().category()),
                                 (int) Math.round(x.meters())))
                         .toList());
+    }
+
+    /**
+     * 띄어 쓴 말마다 따로 찾는다 ("카페 높" → 카페, 높). 붙여 쓴 말은 하나로.
+     * 말이 여럿이면 이름이 "카페높"이 아니어도 업종 "카페"·이름 "높"인 곳이 걸린다 (최대 4개)
+     */
+    static List<String> searchWords(String query) {
+        return java.util.Arrays.stream(query.strip().split("\\s+"))
+                .map(PlaceNames::normalize).filter(w -> !w.isEmpty()).distinct().limit(4).toList();
     }
 
     static int nearbyRank(CourseQueryRepository.Candidate c, String q) {

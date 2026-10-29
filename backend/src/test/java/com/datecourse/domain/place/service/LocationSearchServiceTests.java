@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.datecourse.domain.place.client.NaverGeocodeClient;
+import com.datecourse.domain.place.dto.AddressResult;
 import com.datecourse.domain.place.dto.LocationResult;
 import com.datecourse.domain.place.exception.PlaceException;
 import com.datecourse.domain.place.repository.LocationSearchRepository;
@@ -94,6 +95,27 @@ class LocationSearchServiceTests {
     void 하루_한도를_넘으면_Geocoding_을_부르지_않는다() {
         given(cache.increment(anyString(), any())).willReturn(3L);
         service.search("강남대로 396");
+        verify(geocoder, never()).geocode(anyString());
+    }
+
+    @Test
+    void 주소_찾기는_Geocoding_결과를_좌표와_함께_돌려준다() {
+        given(cache.increment(anyString(), any())).willReturn(1L);
+        given(geocoder.geocode("울산 북구 정자1길 111")).willReturn(List.of(
+                new NaverGeocodeClient.Address("울산광역시 북구 정자1길 111", "울산광역시 북구 정자동 1", 35.6, 129.4)));
+
+        List<AddressResult> result = service.addresses(" 울산 북구  정자1길 111 ");
+
+        assertThat(result).containsExactly(new AddressResult("울산광역시 북구 정자1길 111", "울산광역시 북구 정자동 1", 35.6, 129.4));
+    }
+
+    @Test
+    void 주소_찾기는_키가_없거나_한도를_넘으면_503() {
+        assertThatThrownBy(() -> service.addresses("가")).isInstanceOf(PlaceException.class);
+        given(cache.increment(anyString(), any())).willReturn(3L);
+        assertThatThrownBy(() -> service.addresses("정자1길 111")).hasMessageContaining("주소 찾기를 쓸 수 없어요");
+        given(geocoder.configured()).willReturn(false);
+        assertThatThrownBy(() -> service.addresses("정자1길 111")).hasMessageContaining("주소 찾기를 쓸 수 없어요");
         verify(geocoder, never()).geocode(anyString());
     }
 

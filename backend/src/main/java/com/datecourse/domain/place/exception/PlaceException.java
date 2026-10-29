@@ -13,4 +13,13 @@ public class PlaceException extends ApiException {
     public static PlaceException badQuery() {
         return new PlaceException(HttpStatus.BAD_REQUEST, "찾을 지역이나 장소를 두 글자 이상 적어 주세요.");
     }
+
+    public static PlaceException badAddress() {
+        return new PlaceException(HttpStatus.BAD_REQUEST, "주소를 두 글자 이상 60자 안으로 적어 주세요.");
+    }
+
+    /** Geocoding 키가 없거나 오늘 한도를 다 씀 */
+    public static PlaceException addressUnavailable() {
+        return new PlaceException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 주소 찾기를 쓸 수 없어요. 잠시 뒤에 다시 해 주세요.");
+    }
 }

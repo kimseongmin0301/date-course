@@ -172,7 +172,7 @@ class CourseQueryServiceTests {
 
     @Test
     void 코스에_넣을_장소는_이름이_같은_곳_먼저_그다음_가까운_순() {
-        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq("카페"))).willReturn(List.of(
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq(List.of("카페")))).willReturn(List.of(
                 cand(21, "동네카페", "cafe", "카페", 100, false, false),
                 cand(22, "카페", "cafe", "카페", 800, false, false),
                 cand(23, "카페모모", "cafe", "카페", 500, true, false),
@@ -185,6 +185,16 @@ class CourseQueryServiceTests {
     }
 
     @Test
+    void 띄어_쓴_말은_따로_찾는다() {
+        assertThat(CourseQueryService.searchWords(" 카페  높 ")).containsExactly("카페", "높");
+        assertThat(CourseQueryService.searchWords("블루보틀")).containsExactly("블루보틀");
+        assertThat(CourseQueryService.searchWords("a b c d e f")).hasSize(4);
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq(List.of("카페", "높")))).willReturn(List.of(
+                cand(41, "높", "cafe", "카페", 300, false, false)));
+        assertThat(service.nearbyPlaces(37.5, 127.0, "카페 높")).extracting(a -> a.place().name()).containsExactly("높");
+    }
+
+    @Test
     void 장소_찾기는_검색어가_있어야_한다() {
         assertThatThrownBy(() -> service.nearbyPlaces(37.5, 127.0, "  ")).isInstanceOf(CourseException.class);
         assertThatThrownBy(() -> service.nearbyPlaces(null, 127.0, "카페")).isInstanceOf(CourseException.class);
@@ -192,7 +202,7 @@ class CourseQueryServiceTests {
 
     @Test
     void 업종으로_찾으면_이름에_글자만_든_가게보다_그_업종이_먼저() {
-        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq("서점"))).willReturn(List.of(
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq(List.of("서점")))).willReturn(List.of(
                 cand(31, "한솥도시락역삼세무서점", "restaurant", "김밥/만두/분식", 100, false, false),
                 cand(32, "동네책방", "shop", "서점", 600, false, false)));
 

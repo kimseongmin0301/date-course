@@ -23,6 +23,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import com.datecourse.domain.course.dto.CustomPlaceRequest;
 import com.datecourse.domain.course.dto.PlanResponse;
 import com.datecourse.domain.course.dto.PlanSaveRequest;
 import com.datecourse.domain.course.dto.PlanStepRequest;
@@ -97,6 +98,48 @@ class PlanServiceTests {
         assertThatThrownBy(() -> service.save(visitor, 7, new PlanSaveRequest(null, "14:00", List.of())))
                 .isInstanceOf(CourseException.class);
         verify(plans, never()).upsert(any(), anyLong(), any(), anyInt(), anyString());
+    }
+
+    @Test
+    void 데이터에_없는_가게는_이름_주소_좌표를_그대로_두고_시간표에도_넣는다() {
+        given(plans.courseExists(7)).willReturn(true);
+        given(places.placesByIds(anyList())).willReturn(List.of(place(11, "미술관", 0)));
+        // 저장한 JSON 을 그대로 다시 읽게 한다
+        java.util.concurrent.atomic.AtomicReference<String> stored = new java.util.concurrent.atomic.AtomicReference<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+            stored.set(inv.getArgument(4));
+            return null;
+        }).when(plans).upsert(eq(visitor), eq(7L), any(), anyInt(), anyString());
+        given(plans.find(visitor, 7)).willAnswer(inv -> stored.get() == null ? Optional.empty()
+                : Optional.of(new PlanRepository.Row(7, "코스", "서울특별시", "종로구", null, 840, stored.get(), OffsetDateTime.now())));
+
+        PlanResponse read = service.save(visitor, 7, new PlanSaveRequest(null, "14:00", List.of(
+                new PlanStepRequest(11L, "spot", 60, null, "course", 1),
+                new PlanStepRequest(null, "cafe", 40, null, "course", 2,
+                        new CustomPlaceRequest(" 카페\t높 ", "울산광역시 북구 정자1길 111", 37.5 + 670 / 111_320.0, 127.0)))));
+
+        assertThat(read.steps()).hasSize(2);
+        var custom = read.steps().get(1);
+        assertThat(custom.role()).isEqualTo("mine");                 // 직접 넣은 곳은 늘 "내 장소"·더한 곳
+        assertThat(custom.origin()).isEqualTo("added");
+        assertThat(custom.place().id()).isEqualTo(PlanService.CUSTOM_ID);
+        assertThat(custom.place().name()).isEqualTo("카페 높");
+        assertThat(custom.place().sigungu()).isEqualTo("북구");
+        assertThat(custom.reasons()).containsExactly("직접 넣은 곳");
+
+        List<int[]> t = PlanService.timeline(List.of(new PlanService.Stored(11, "spot", 60, null, "course", 1),
+                new PlanService.Stored(null, "mine", 40, null, "added", null, new PlanService.Custom("카페 높", "주소", 37.5 + 670 / 111_320.0, 127.0))),
+                Map.of(11L, place(11, "미술관", 0)), 840);
+        assertThat(t.get(1)[0]).isBetween(910, 915);                  // 670m × 1.3 ÷ 67 ≈ 13분 걸어서
+    }
+
+    @Test
+    void 직접_넣는_가게는_이름과_국내_좌표가_있어야_한다() {
+        assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("", "주소", 37.5, 127.0))).isInstanceOf(CourseException.class);
+        assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("가".repeat(31), "주소", 37.5, 127.0))).isInstanceOf(CourseException.class);
+        assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("카페", "", 37.5, 127.0))).isInstanceOf(CourseException.class);
+        assertThatThrownBy(() -> PlanService.custom(new CustomPlaceRequest("카페", "주소", 40.7, -74.0))).isInstanceOf(CourseException.class);
+        assertThat(PlanService.custom(new CustomPlaceRequest("카페\u0000 높", "주소", 37.5, 127.0)).name()).isEqualTo("카페 높");
     }
 
     @Test

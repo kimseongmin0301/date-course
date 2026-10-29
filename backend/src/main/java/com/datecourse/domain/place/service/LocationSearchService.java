@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.datecourse.domain.collector.util.PlaceNames;
 import com.datecourse.domain.collector.util.Regions;
 import com.datecourse.domain.place.client.NaverGeocodeClient;
+import com.datecourse.domain.place.dto.AddressResult;
 import com.datecourse.domain.place.dto.LocationResult;
 import com.datecourse.domain.place.exception.PlaceException;
 import com.datecourse.domain.place.repository.LocationSearchRepository;
@@ -87,6 +88,29 @@ public class LocationSearchService {
         String q = clean(query);
         return cache.getOrLoad("location:" + q, (List<LocationResult> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
                 new TypeReference<List<LocationResult>>() { }, () -> load(q));
+    }
+
+    /**
+     * 주소 찾기 (데이터에 없는 가게를 일정에 직접 넣을 때). 네이버 Geocoding 만 쓰고 한도·캐시는 지역 검색과 같다.
+     * 키가 없거나 오늘 한도를 다 썼으면 503 (빈 목록이면 "못 찾음"과 헷갈려서)
+     */
+    public List<AddressResult> addresses(String query) {
+        String q = query == null ? "" : String.join(" ", query.strip().split("\\s+"));
+        if (q.length() < 2 || q.length() > 60) {
+            throw PlaceException.badAddress();
+        }
+        if (!geocoder.configured()) {
+            throw PlaceException.addressUnavailable();
+        }
+        return cache.getOrLoad("address:" + q, (List<AddressResult> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
+                new TypeReference<List<AddressResult>>() { }, () -> {
+                    if (!geocodeAllowed()) {
+                        throw PlaceException.addressUnavailable();
+                    }
+                    return geocoder.geocode(q).stream()
+                            .map(a -> new AddressResult(a.roadAddress(), a.jibunAddress(), a.lat(), a.lng()))
+                            .toList();
+                });
     }
 
     private List<LocationResult> load(String q) {

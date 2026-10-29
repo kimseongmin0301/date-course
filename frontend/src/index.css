@@ -913,3 +913,35 @@ button:disabled {
 .saved-item p {
   margin: 0 0 4px;
 }
+
+/* 데이터에 없는 가게를 이름·주소로 직접 넣기 */
+.custom-place {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.custom-place > p {
+  margin: 0;
+}
+
+.custom-place > input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.custom-place .add-search {
+  margin-top: 0;
+}
+
+.custom-place > .link-button {
+  justify-self: start;
+}

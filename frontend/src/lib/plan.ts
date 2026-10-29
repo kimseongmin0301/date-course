@@ -41,6 +41,36 @@ export interface TimedStep extends PlanStep {
 }
 
 export const STAY_MAX = 720
+/** 직접 넣은 가게 이름 최대 글자 수 (서버 PlanService.CUSTOM_NAME_MAX) */
+export const CUSTOM_NAME_MAX = 30
+
+/** 데이터에 없어 이름·주소로 직접 넣은 가게 (id 0, 분류 custom) */
+export function isCustom(place: Place): boolean {
+  return place.category === 'custom'
+}
+
+/** 이름과 주소 찾기로 고른 주소 → 직접 넣은 가게. 이름은 서버처럼 공백을 하나로 */
+export function customPlace(name: string, address: { roadAddress: string; jibunAddress: string; lat: number; lng: number }): Place {
+  const clean = name.trim().split(/\s+/).join(' ')
+  const road = address.roadAddress || address.jibunAddress
+  return {
+    id: 0,
+    name: clean,
+    branch: null,
+    category: 'custom',
+    detailCategory: null,
+    lat: address.lat,
+    lng: address.lng,
+    sido: '',
+    sigungu: null,
+    roadAddress: road,
+    lotAddress: address.roadAddress ? address.jibunAddress || null : null,
+    phone: null,
+    imageUrl: null,
+    description: null,
+    naverMapUrl: `https://map.naver.com/p/search/${encodeURIComponent(`${clean} ${road}`)}`,
+  }
+}
 
 const draftKey = (id: string | number) => `course-plan:${id}`
 const oldSwapKey = (id: string | number) => `course-swaps:${id}`
@@ -102,19 +132,31 @@ export function fromSaved(saved: PlanResponse, course: CourseDetail): Plan {
   }
 }
 
-/** 저장 요청 몸통 (장소는 id 만 보낸다: 서버가 지금 DB 의 장소로 이어 붙임) */
+/** 저장 요청 몸통 (장소는 id 만 보낸다: 서버가 지금 DB 의 장소로 이어 붙임. 직접 넣은 가게만 이름·주소·좌표) */
 export function toRequest(plan: Plan) {
   return {
     date: plan.date || null,
     start: plan.start,
-    steps: plan.steps.map((s) => ({
-      placeId: s.place.id,
-      role: s.role,
-      stayMinutes: s.stayMinutes,
-      fixedArrive: s.fixedArrive,
-      origin: s.origin,
-      courseOrder: s.courseOrder,
-    })),
+    steps: plan.steps.map((s) =>
+      isCustom(s.place)
+        ? {
+            placeId: null,
+            role: 'mine',
+            stayMinutes: s.stayMinutes,
+            fixedArrive: s.fixedArrive,
+            origin: 'added',
+            courseOrder: null,
+            custom: { name: s.place.name, address: s.place.roadAddress ?? '', lat: s.place.lat, lng: s.place.lng },
+          }
+        : {
+            placeId: s.place.id,
+            role: s.role,
+            stayMinutes: s.stayMinutes,
+            fixedArrive: s.fixedArrive,
+            origin: s.origin,
+            courseOrder: s.courseOrder,
+          },
+    ),
   }
 }
 

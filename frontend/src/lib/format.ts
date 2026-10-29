@@ -26,6 +26,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
   cafe: '카페',
   restaurant: '식당',
   bar: '술집',
+  custom: '직접 넣은 곳',
 }
 
 /** 검색 주소의 kw (쉼표로 이은 code) ↔ 배열 */

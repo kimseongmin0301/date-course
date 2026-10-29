@@ -67,6 +67,14 @@ export interface Place {
   naverMapUrl: string
 }
 
+/** 주소 찾기 결과 (GET /api/addresses) */
+export interface AddressResult {
+  roadAddress: string
+  jibunAddress: string
+  lat: number
+  lng: number
+}
+
 export interface StepDetail {
   order: number
   role: StepRole

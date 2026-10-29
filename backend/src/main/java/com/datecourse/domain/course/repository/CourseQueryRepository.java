@@ -174,9 +174,17 @@ public class CourseQueryRepository {
         return candidates(lat, lng, meters, categories, null);
     }
 
-    /** nameContains: 정리한 이름이나 업종 이름에 이 말이 든 곳만 (null 이면 모두) */
-    public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories, String nameContains) {
-        return jdbc.sql("""
+    /**
+     * words: 말마다 정리한 이름이나 업종 이름에 든 곳만 (null 이면 모두).
+     * "카페 높" → 이름·업종에 "카페"도 "높"도 든 곳 (업종 "카페"인 가게 "높")
+     */
+    public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories, List<String> words) {
+        List<String> terms = words == null ? List.of() : words;
+        StringBuilder wordSql = new StringBuilder();
+        for (int i = 0; i < terms.size(); i++) {
+            wordSql.append(" AND (p.normalized_name LIKE :w").append(i).append(" OR replace(p.detail_category, ' ', '') LIKE :w").append(i).append(')');
+        }
+        var spec = jdbc.sql("""
                 SELECT p.id, p.name, p.branch, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
                        p.road_address, p.lot_address, p.phone, p.image_url, p.description,
                        (SELECT string_agg(k.code, ',') FROM place_keyword pk JOIN keyword k ON k.id = pk.keyword_id
@@ -186,11 +194,12 @@ public class CourseQueryRepository {
                        EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge
                 FROM place p
                 WHERE p.closed_at IS NULL AND p.category IN (:categories)
-                  AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax
-                  AND (CAST(:name AS varchar) IS NULL OR p.normalized_name LIKE CAST(:name AS varchar)
-                       OR replace(p.detail_category, ' ', '') LIKE CAST(:name AS varchar))""")
-                .param("categories", categories)
-                .param("name", nameContains == null ? null : "%" + nameContains + "%")
+                  AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax""" + wordSql)
+                .param("categories", categories);
+        for (int i = 0; i < terms.size(); i++) {
+            spec = spec.param("w" + i, "%" + terms.get(i) + "%");
+        }
+        return spec
                 .param("latMin", lat - Geo.latDelta(meters)).param("latMax", lat + Geo.latDelta(meters))
                 .param("lngMin", lng - Geo.lngDelta(meters, lat)).param("lngMax", lng + Geo.lngDelta(meters, lat))
                 .query((rs, n) -> {

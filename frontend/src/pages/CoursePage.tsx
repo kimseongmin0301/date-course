@@ -3,9 +3,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { CATEGORY_LABEL, formatDistance, formatMinutes, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
-import { altIcon, jumpTo, stepIcon } from '../lib/naverMap'
+import { altIcon, distanceMeters, jumpTo, stepIcon } from '../lib/naverMap'
 import {
   clockText,
+  CUSTOM_NAME_MAX,
+  customPlace,
   defaultStay,
   fromSaved,
   initialPlan,
@@ -23,7 +25,7 @@ import {
   type PlanRole,
   type PlanStep,
 } from '../lib/plan'
-import type { AlternativeResponse, CourseDetail } from '../lib/types'
+import type { AddressResult, AlternativeResponse, CourseDetail } from '../lib/types'
 import { useMap } from '../map/context'
 
 const LETTERS = 'ABCDEFGHIJ'
@@ -38,10 +40,19 @@ function savedLabel(iso: string): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 데이터에 없는 가게를 이름·주소로 직접 넣는 양식 */
+interface CustomForm {
+  name: string
+  address: string
+  results: AddressResult[] | null
+  error: string | null
+  loading: boolean
+}
+
 /** 지도·목록에 같이 보이는 후보 목록: 근처 대안(그 단계를 바꿈) 또는 장소 찾기(그 자리에 더함) */
 type Picker =
   | { kind: 'alt'; index: number; items: AlternativeResponse[] | null; error: string | null }
-  | { kind: 'add'; index: number; items: AlternativeResponse[] | null; error: string | null; query: string }
+  | { kind: 'add'; index: number; items: AlternativeResponse[] | null; error: string | null; query: string; custom: CustomForm | null }
 
 // 코스 상세 = 내 일정: 지도에 단계 이름표와 동선, 왼쪽에 시간표.
 // 장소 바꾸기(근처 대안)·더하기(이름으로 찾기)·빼기·순서 바꾸기, 출발 시간·머무는 시간(분)·도착 시간 고정 → 시간표.
@@ -92,6 +103,11 @@ export default function CoursePage() {
   const steps = useMemo(() => (plan ? timeline(plan) : []), [plan])
   const changed = plan && course ? isChanged(plan, course) : false
   const unsaved = plan && course ? (saved ? !samePlan(plan, saved.plan) : isChanged(plan, course)) : false
+  const customList = picker?.kind === 'add' ? picker.custom?.results : null
+  const customResults = useMemo(
+    () => customList?.map((r) => ({ lat: r.lat, lng: r.lng, title: r.roadAddress || r.jibunAddress })) ?? null,
+    [customList],
+  )
 
   // 단계 이름표·동선 (+ 열어 둔 후보 A~)
   useEffect(() => {
@@ -111,14 +127,16 @@ export default function CoursePage() {
       ),
     ]
     let bounds = path.slice(1).reduce((b, p) => b.extend(p), new naver.maps.LatLngBounds(path[0], path[0]))
-    ;(picker?.items ?? []).forEach((a, i) => {
-      const position = new naver.maps.LatLng(a.place.lat, a.place.lng)
-      overlays.push(new naver.maps.Marker({ map, position, icon: altIcon(LETTERS[i]), title: a.place.name, zIndex: 100 }))
+    // 후보 A~: 근처 대안·찾은 장소, 직접 넣기면 찾은 주소
+    const marks = customResults ?? (picker?.items ?? []).map((a) => ({ lat: a.place.lat, lng: a.place.lng, title: a.place.name }))
+    marks.forEach((m, i) => {
+      const position = new naver.maps.LatLng(m.lat, m.lng)
+      overlays.push(new naver.maps.Marker({ map, position, icon: altIcon(LETTERS[i]), title: m.title, zIndex: 100 }))
       bounds = bounds.extend(position)
     })
     map.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 })
     return () => overlays.forEach((o) => o.setMap(null))
-  }, [map, steps, picker?.items])
+  }, [map, steps, picker?.items, customResults])
 
   function update(next: Plan) {
     setPlan(next)
@@ -163,7 +181,7 @@ export default function CoursePage() {
   }
 
   function openAdd(index: number) {
-    setPicker((p) => (p?.kind === 'add' && p.index === index ? null : { kind: 'add', index, items: null, error: null, query: '' }))
+    setPicker((p) => (p?.kind === 'add' && p.index === index ? null : { kind: 'add', index, items: null, error: null, query: '', custom: null }))
   }
 
   function searchToAdd(e: FormEvent, index: number, query: string) {
@@ -173,10 +191,41 @@ export default function CoursePage() {
     if (!q) return
     // 넣을 자리 바로 앞 장소 근처에서 찾는다 (맨 앞이면 첫 장소 근처)
     const near = plan.steps[Math.max(0, index - 1)].place
-    setPicker({ kind: 'add', index, items: null, error: null, query })
+    setPicker({ kind: 'add', index, items: null, error: null, query, custom: null })
     api<AlternativeResponse[]>(`/places/nearby?lat=${near.lat}&lng=${near.lng}&q=${encodeURIComponent(q)}`)
       .then((items) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, items } : p)))
       .catch((err: Error) => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, error: err.message } : p)))
+  }
+
+  /** 직접 넣기 양식 고치기 (열려 있는 그 자리 것만) */
+  function setCustom(index: number, fn: (c: CustomForm) => CustomForm) {
+    setPicker((p) => (p?.kind === 'add' && p.index === index && p.custom ? { ...p, custom: fn(p.custom) } : p))
+  }
+
+  function openCustom(index: number, name: string) {
+    setPicker((p) =>
+      p?.kind === 'add' && p.index === index
+        ? { ...p, items: null, custom: { name: name.trim().slice(0, CUSTOM_NAME_MAX), address: '', results: null, error: null, loading: false } }
+        : p,
+    )
+  }
+
+  function findAddress(e: FormEvent, index: number, address: string) {
+    e.preventDefault()
+    const q = address.trim()
+    if (q.length < 2) {
+      setCustom(index, (c) => ({ ...c, error: '주소를 두 글자 이상 적어 주세요.' }))
+      return
+    }
+    setCustom(index, (c) => ({ ...c, loading: true, error: null, results: null }))
+    api<AddressResult[]>(`/addresses?q=${encodeURIComponent(q)}`)
+      .then((results) => setCustom(index, (c) => ({ ...c, loading: false, results })))
+      .catch((err: Error) => setCustom(index, (c) => ({ ...c, loading: false, error: err.message })))
+  }
+
+  function addCustom(index: number, name: string, address: AddressResult) {
+    const place = customPlace(name, address)
+    add(index, { place, reasons: ['직접 넣은 곳'], distanceMeters: 0 })
   }
 
   function swap(index: number, alt: AlternativeResponse) {
@@ -307,6 +356,67 @@ export default function CoursePage() {
     )
   }
 
+  function customForm(index: number, c: CustomForm) {
+    if (!plan) return null
+    const near = plan.steps[Math.max(0, index - 1)].place
+    const name = c.name.trim()
+    return (
+      <div className="custom-place">
+        <p className="muted small">우리 데이터에 없는 가게는 이름과 주소로 넣어요. 이 일정에만 보여요.</p>
+        <input
+          type="text"
+          value={c.name}
+          maxLength={CUSTOM_NAME_MAX}
+          placeholder="가게 이름 (예: 카페 높)"
+          aria-label="직접 넣을 가게 이름"
+          onChange={(e) => setCustom(index, (f) => ({ ...f, name: e.target.value }))}
+        />
+        <form className="add-search" onSubmit={(e) => findAddress(e, index, c.address)}>
+          <input
+            type="search"
+            value={c.address}
+            maxLength={60}
+            placeholder="주소 (예: 울산 북구 정자1길 111)"
+            aria-label="직접 넣을 가게 주소"
+            onChange={(e) => setCustom(index, (f) => ({ ...f, address: e.target.value }))}
+          />
+          <button type="submit" disabled={c.loading}>
+            {c.loading ? '찾는 중…' : '주소 찾기'}
+          </button>
+        </form>
+        {(c.error || c.results) && (
+          <ul className="alternatives">
+            {c.error && <li className="notice small">{c.error}</li>}
+            {c.results?.length === 0 && <li className="muted small">주소를 찾지 못했어요. 도로명 주소(예: 정자1길 111)로 적어 주세요.</li>}
+            {c.results?.map((r, i) => (
+              <li key={`${r.lat},${r.lng},${i}`} className="alternative">
+                <button type="button" className="alt-letter" onClick={() => focus(r.lat, r.lng)} aria-label={`${r.roadAddress || r.jibunAddress} 지도에서 보기`}>
+                  {LETTERS[i]}
+                </button>
+                <div className="step-body">
+                  <h3>{r.roadAddress || r.jibunAddress}</h3>
+                  <p className="muted small">
+                    {[r.roadAddress ? r.jibunAddress : null, `${formatDistance(Math.round(distanceMeters(near.lat, near.lng, r.lat, r.lng)))} 거리`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                  <div className="step-actions">
+                    <button type="button" className="swap-button" disabled={!name} onClick={() => addCustom(index, name, r)}>
+                      {name ? `"${name}" 여기에 넣기` : '가게 이름을 먼저 적어 주세요'}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <button type="button" className="link-button small" onClick={() => setPicker((p) => (p?.kind === 'add' && p.index === index ? { ...p, custom: null } : p))}>
+          ← 이름으로 다시 찾기
+        </button>
+      </div>
+    )
+  }
+
   function addSlot(index: number) {
     const open = picker?.kind === 'add' && picker.index === index
     return (
@@ -328,7 +438,12 @@ export default function CoursePage() {
               />
               <button type="submit">찾기</button>
             </form>
-            {pickerList(index, 'add')}
+            {!picker.custom && pickerList(index, 'add')}
+            {picker.custom ? customForm(index, picker.custom) : (
+              <button type="button" className="link-button small" onClick={() => openCustom(index, picker.query)}>
+                찾는 곳이 없나요? 주소로 직접 넣기
+              </button>
+            )}
           </>
         )}
       </li>
@@ -453,6 +568,7 @@ export default function CoursePage() {
                 {s.place.imageUrl && <img src={s.place.imageUrl} alt="" loading="lazy" className="step-image" />}
                 {s.place.description && <p className="description">{s.place.description}</p>}
                 <p className="muted small">{s.place.roadAddress ?? s.place.lotAddress}</p>
+                {s.place.category === 'custom' && <p className="muted small">직접 넣은 곳이라 영업 정보가 없어요. 네이버지도에서 확인해 주세요.</p>}
                 {s.place.phone && (
                   <p className="small">
                     <a href={`tel:${s.place.phone}`}>{s.place.phone}</a>
