@@ -955,3 +955,32 @@ button:disabled {
   margin: 6px 0 0;
   color: var(--muted);
 }
+
+/* 사진이 없는 장소의 네이버 이미지 검색 결과 */
+.naver-photos {
+  margin-top: 8px;
+}
+
+.naver-photos p {
+  margin: 4px 0 0;
+}
+
+.photo-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.photo-row a {
+  flex: none;
+}
+
+.photo-row img {
+  display: block;
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--line);
+}

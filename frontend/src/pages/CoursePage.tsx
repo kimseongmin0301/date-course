@@ -25,7 +25,7 @@ import {
   type PlanRole,
   type PlanStep,
 } from '../lib/plan'
-import type { AddressResult, AlternativeResponse, CourseDetail } from '../lib/types'
+import type { AddressResult, AlternativeResponse, CourseDetail, NaverImage, Place } from '../lib/types'
 import { useMap } from '../map/context'
 
 const LETTERS = 'ABCDEFGHIJ'
@@ -63,6 +63,17 @@ type Picker =
       source: 'ours' | 'naver'
     }
 
+/** 사진이 없는 장소의 "네이버 이미지 보기" (단계 key 마다) */
+interface Photos {
+  items: NaverImage[] | null
+  error: string | null
+}
+
+/** 이미지 검색어: "가게 이름 시도 시군구" (시도는 앞 두 글자: 울산광역시 → 울산) */
+function imageQuery(place: Place): string {
+  return [place.name, place.branch, place.sido?.slice(0, 2), place.sigungu].filter(Boolean).join(' ')
+}
+
 /** 네이버 오픈 API 를 쓴 곳에 붙이는 링크 (NAVER API HUB 상표·BI 가이드) */
 const NAVER_API_HUB = 'https://www.ncloud.com/product/applicationService/NAVERAPIHUB'
 
@@ -82,6 +93,7 @@ export default function CoursePage() {
   const [saved, setSaved] = useState<{ plan: Plan; at: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<Record<string, Photos>>({})
 
   useEffect(() => {
     loadKeywords()
@@ -282,6 +294,56 @@ export default function CoursePage() {
     }
     updateSteps((list) => [...list.slice(0, index), step, ...list.slice(index)])
     setPicker(null)
+  }
+
+  /** 네이버 이미지 검색 (누를 때만 부른다: 지역 검색과 하루 한도를 나눠 써서) */
+  function loadPhotos(key: string, place: Place) {
+    if (photos[key]) {
+      setPhotos((p) => {
+        const next = { ...p }
+        delete next[key]
+        return next
+      })
+      return
+    }
+    setPhotos((p) => ({ ...p, [key]: { items: null, error: null } }))
+    api<NaverImage[]>(`/places/images?q=${encodeURIComponent(imageQuery(place))}`)
+      .then((items) => setPhotos((p) => ({ ...p, [key]: { items, error: null } })))
+      .catch((err: Error) => setPhotos((p) => ({ ...p, [key]: { items: [], error: err.message } })))
+  }
+
+  function photoStrip(key: string, place: Place) {
+    const p = photos[key]
+    if (!p) return null
+    const more = `https://search.naver.com/search.naver?where=image&query=${encodeURIComponent(imageQuery(place))}`
+    return (
+      <div className="naver-photos">
+        {p.error && <p className="notice small">{p.error}</p>}
+        {!p.items && !p.error && <p className="muted small">네이버에서 이미지를 찾는 중…</p>}
+        {p.items && p.items.length === 0 && !p.error && <p className="muted small">네이버 이미지 검색 결과가 없어요.</p>}
+        {p.items && p.items.length > 0 && (
+          <>
+            <div className="photo-row">
+              {p.items.map((img) => (
+                <a key={img.thumbnail} href={more} target="_blank" rel="noreferrer" title={img.title}>
+                  <img src={img.thumbnail} alt={img.title} loading="lazy" referrerPolicy="no-referrer" />
+                </a>
+              ))}
+            </div>
+            <p className="muted small">
+              네이버 이미지 검색 결과예요. 이 가게 사진이 아닐 수도 있어요 ·{' '}
+              <a href={more} target="_blank" rel="noreferrer">
+                더 보기 ↗
+              </a>{' '}
+              ·{' '}
+              <a href={NAVER_API_HUB} target="_blank" rel="noreferrer">
+                NAVER 오픈 API
+              </a>
+            </p>
+          </>
+        )}
+      </div>
+    )
   }
 
   function remove(index: number) {
@@ -642,6 +704,11 @@ export default function CoursePage() {
                   <a href={s.place.naverMapUrl} target="_blank" rel="noreferrer" className="more">
                     네이버지도 ↗
                   </a>
+                  {!s.place.imageUrl && (
+                    <button type="button" className="link-button" onClick={() => loadPhotos(s.key, s.place)} aria-expanded={!!photos[s.key]}>
+                      {photos[s.key] ? '이미지 닫기' : '📷 네이버 이미지 보기'}
+                    </button>
+                  )}
                   {s.courseOrder != null && (
                     <button type="button" className="link-button" onClick={() => openAlternatives(i)} aria-expanded={picker?.kind === 'alt' && picker.index === i}>
                       {picker?.kind === 'alt' && picker.index === i ? '대안 닫기' : ALT_LABEL[s.role]}
@@ -659,6 +726,7 @@ export default function CoursePage() {
                     </button>
                   </span>
                 </div>
+                {!s.place.imageUrl && photoStrip(s.key, s.place)}
                 {pickerList(i, 'alt')}
               </div>
             </li>

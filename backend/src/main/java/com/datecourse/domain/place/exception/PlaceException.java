@@ -23,6 +23,11 @@ public class PlaceException extends ApiException {
         return new PlaceException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 네이버에서 찾을 수 없어요. 이름과 주소로 직접 넣어 주세요.");
     }
 
+    /** 네이버 이미지 검색을 못 씀 (키 없음·한도·오류) */
+    public static PlaceException imagesUnavailable() {
+        return new PlaceException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 네이버 이미지를 불러올 수 없어요. 잠시 뒤에 다시 해 주세요.");
+    }
+
     /** Geocoding 키가 없거나 오늘 한도를 다 씀 */
     public static PlaceException addressUnavailable() {
         return new PlaceException(HttpStatus.SERVICE_UNAVAILABLE, "지금은 주소 찾기를 쓸 수 없어요. 잠시 뒤에 다시 해 주세요.");

@@ -67,6 +67,14 @@ export interface Place {
   naverMapUrl: string
 }
 
+/** 네이버 이미지 검색 결과 (GET /api/places/images). title 은 사진이 실린 글의 제목 */
+export interface NaverImage {
+  title: string
+  thumbnail: string
+  width: number
+  height: number
+}
+
 /** 주소 찾기 결과 (GET /api/addresses) */
 export interface AddressResult {
   roadAddress: string

@@ -38,6 +38,26 @@ public class NaverPlaceSearchService {
         this.dailyLimit = dailyLimit;
     }
 
+    /** 이미지 검색 (query: "가게 이름 시도 시군구"). 지역 검색과 같은 하루 한도를 나눠 쓴다. 키가 없거나 한도를 넘으면 503 */
+    public List<NaverLocalSearchClient.Image> images(String query) {
+        if (!client.configured()) {
+            throw PlaceException.imagesUnavailable();
+        }
+        return cache.getOrLoad("naver-image:" + query, (List<NaverLocalSearchClient.Image> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
+                new TypeReference<List<NaverLocalSearchClient.Image>>() { }, () -> {
+                    if (!allowed()) {
+                        throw PlaceException.imagesUnavailable();
+                    }
+                    return client.images(query);
+                });
+    }
+
+    /** 오늘(한국 시간) 검색 API 를 부른 수를 세어 한도 안이면 true. Redis 가 안 되면 캐시·한도도 안 되므로 부르지 않는다 */
+    private boolean allowed() {
+        long count = cache.increment("naver-search-count:" + LocalDate.now(KST), Duration.ofDays(2));
+        return count > 0 && count <= dailyLimit;
+    }
+
     /** query 는 "동네 + 가게 이름" (예: "울산광역시 북구 카페 높"). 키가 없거나 오늘 한도를 다 썼으면 503 */
     public List<Item> search(String query) {
         if (!client.configured()) {
@@ -45,9 +65,7 @@ public class NaverPlaceSearchService {
         }
         return cache.getOrLoad("naver-local:" + query, (List<Item> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
                 new TypeReference<List<Item>>() { }, () -> {
-                    long count = cache.increment("naver-search-count:" + LocalDate.now(KST), Duration.ofDays(2));
-                    // Redis 가 안 되면 캐시·한도도 안 되므로 부르지 않는다
-                    if (count <= 0 || count > dailyLimit) {
+                    if (!allowed()) {
                         throw PlaceException.searchUnavailable();
                     }
                     return client.search(query);

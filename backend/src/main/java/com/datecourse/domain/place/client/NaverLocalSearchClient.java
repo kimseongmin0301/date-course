@@ -19,7 +19,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * NAVER API HUB 검색 API 의 지역 검색 (가게·기관 이름 → 업체 정보). Client Secret 이 필요해서 서버에서만 부른다.
+ * NAVER API HUB 검색 API 의 지역 검색 (가게·기관 이름 → 업체 정보)과 이미지 검색. Client Secret 이 필요해서 서버에서만 부른다.
  * 한 번에 최대 5곳, 기준 좌표를 넘길 수 없어 검색어에 동네를 붙여 부른다.
  * 무료: 0~775,000건, 하루 최대 25,000건. 키가 없으면 빈 목록, 부르다 실패하면 503 (빈 결과로 캐시되지 않게).
  * 응답은 JSON 인데 Content-Type 이 text/plain 으로 와서 글자로 받아 직접 읽는다.
@@ -34,8 +34,15 @@ public class NaverLocalSearchClient {
     public record Item(String title, String category, String address, String roadAddress, double lat, double lng) {
     }
 
+    /** 이미지 검색 결과: title 은 이미지가 실린 문서의 제목, thumbnail 은 네이버가 줄인 사진 (https 만) */
+    public record Image(String title, String thumbnail, int width, int height) {
+    }
+
+    public static final int IMAGE_DISPLAY = 6;
+
     private final RestClient client;
     private final String baseUrl;
+    private final String imageUrl;
     private final String clientId;
     private final String clientSecret;
     private final JsonMapper json;
@@ -43,8 +50,10 @@ public class NaverLocalSearchClient {
     public NaverLocalSearchClient(@Value("${date-course.naver.search-url}") String baseUrl,
                                   @Value("${date-course.naver.search-client-id:}") String clientId,
                                   @Value("${date-course.naver.search-client-secret:}") String clientSecret,
+                                  @Value("${date-course.naver.image-url:https://naverapihub.apigw.ntruss.com/search/v1/image}") String imageUrl,
                                   JsonMapper json) {
         this.json = json;
+        this.imageUrl = imageUrl;
         var factory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
         factory.setReadTimeout(Duration.ofSeconds(5));
@@ -77,6 +86,44 @@ public class NaverLocalSearchClient {
             log.warn("네이버 지역 검색 실패: {}", e.getMessage());
             throw PlaceException.searchUnavailable();
         }
+    }
+
+    /** 이미지 검색 (정확도 순 IMAGE_DISPLAY 장). 키가 없으면 빈 목록, 실패하면 503 */
+    public List<Image> images(String query) {
+        if (!configured()) {
+            return List.of();
+        }
+        try {
+            String text = client.get()
+                    .uri(UriComponentsBuilder.fromUriString(imageUrl).queryParam("query", query)
+                            .queryParam("display", IMAGE_DISPLAY).queryParam("start", 1).queryParam("sort", "sim")
+                            .queryParam("filter", "all").queryParam("format", "json")
+                            .encode().build().toUri())
+                    .header("X-NCP-APIGW-API-KEY-ID", clientId)
+                    .header("X-NCP-APIGW-API-KEY", clientSecret)
+                    .retrieve()
+                    .body(String.class);
+            return parseImages(text);
+        } catch (RuntimeException e) {
+            log.warn("네이버 이미지 검색 실패: {}", e.getMessage());
+            throw PlaceException.imagesUnavailable();
+        }
+    }
+
+    /** 응답 JSON → 사진 목록 (https 섬네일만) */
+    List<Image> parseImages(String text) {
+        List<Image> result = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return result;
+        }
+        for (JsonNode i : json.readTree(text).path("items")) {
+            String thumbnail = i.path("thumbnail").asString("");
+            if (thumbnail.startsWith("https://")) {
+                result.add(new Image(plain(i.path("title").asString("")), thumbnail,
+                        i.path("sizewidth").asInt(0), i.path("sizeheight").asInt(0)));
+            }
+        }
+        return result;
     }
 
     /** 응답 JSON → 업체 목록 (좌표·이름이 없는 것은 뺀다) */

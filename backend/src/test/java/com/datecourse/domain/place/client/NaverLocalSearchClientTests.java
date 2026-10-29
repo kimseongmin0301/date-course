@@ -20,14 +20,14 @@ class NaverLocalSearchClientTests {
 
     @Test
     void 키가_없으면_부르지_않는다() {
-        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", tools.jackson.databind.json.JsonMapper.builder().build());
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", "http://localhost:1", tools.jackson.databind.json.JsonMapper.builder().build());
         assertThat(client.configured()).isFalse();
         assertThat(client.search("카페")).isEmpty();
     }
 
     @Test
     void 응답_JSON_을_읽는다() {
-        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", tools.jackson.databind.json.JsonMapper.builder().build());
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", "http://localhost:1", tools.jackson.databind.json.JsonMapper.builder().build());
         String body = """
                 {"total":2,"items":[
                   {"title":"<b>카페</b> 높","category":"카페,디저트>카페","address":"울산광역시 북구 정자동 434-14",
@@ -39,8 +39,19 @@ class NaverLocalSearchClientTests {
 
     @Test
     void 부르다_실패하면_503() {
-        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "id", "secret", tools.jackson.databind.json.JsonMapper.builder().build());
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "id", "secret", "http://localhost:1", tools.jackson.databind.json.JsonMapper.builder().build());
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.search("카페"))
                 .isInstanceOf(com.datecourse.domain.place.exception.PlaceException.class);
+    }
+
+    @Test
+    void 이미지_응답은_https_섬네일만() {
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", "http://localhost:1", tools.jackson.databind.json.JsonMapper.builder().build());
+        String body = """
+                {"items":[
+                  {"title":"<b>카페 높</b> 다녀옴","link":"https://a/1.jpg","thumbnail":"https://search.pstatic.net/sunny/?src=1","sizewidth":"800","sizeheight":"600"},
+                  {"title":"http 섬네일","thumbnail":"http://x/2.jpg"}]}""";
+        assertThat(client.parseImages(body)).containsExactly(
+                new NaverLocalSearchClient.Image("카페 높 다녀옴", "https://search.pstatic.net/sunny/?src=1", 800, 600));
     }
 }

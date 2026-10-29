@@ -14,6 +14,7 @@
   - 네이버 검색 API: 2026-07 말 개발자센터 신규 신청이 닫히고 NAVER API HUB 로 옮겨 갔습니다. API HUB 의 검색 API 는 2026-10-29 확인 기준 0~775,000건 0원, 하루 최대 25,000건이라 **지역 검색**(가게 이름 → 업체)만 장소 찾기에서 우리 데이터에 없을 때 씁니다(6절). 네이버지도 링크는 API 없이 검색 주소(`https://map.naver.com/p/search/{이름}`)로 겁니다.
 - 네이버 클라우드 Maps 는 **Dynamic Map**(화면 지도, 대표 계정 1개에 월 6,000,000건 무료)과 **Geocoding**(주소 검색, 월 3,000,000건 무료)만 무료 이용량 안에서 씁니다. 넘으면 바로 과금되므로 콘솔의 이용 한도를 그 이하로 걸어 둡니다(6절).
 - **NAVER API HUB 지역 검색**(`place/client/NaverLocalSearchClient`, `NaverPlaceSearchService`): 콘솔 NAVER API HUB 의 Application 키(`NAVER_SEARCH_CLIENT_ID`·`NAVER_SEARCH_CLIENT_SECRET`, Maps 와 다른 키, 서버에서만). 한 번에 최대 5곳이고 기준 좌표를 못 넘겨서 검색어 앞에 동네를 붙입니다. 사이트 전체 하루 20,000번(`NAVER_SEARCH_DAILY_LIMIT`, 무료 하루 25,000건·월 775,000건 안)·검색어마다 하루 캐시. 결과는 **우리 장소 DB·이용자 제안에 쌓지 않고**, 사람이 고른 곳만 그 사람 일정에 이름·주소·좌표로 저장합니다(결과를 얼마나 저장해도 되는지 약관 조항을 찾지 못해 보수적으로). 결과 위에 "NAVER 오픈 API" 링크(API HUB 상표·BI 가이드).
+- **NAVER API HUB 이미지 검색**(같은 키·같은 하루 한도): 사진이 없는 단계 카드의 "📷 네이버 이미지 보기"를 **누를 때만** "가게 이름 시도 시군구"로 6장(`GET /api/places/images`, 하루 캐시). 블로그·웹 이미지라 가게 공식 사진이 아닐 수 있다고 함께 적고, 저장하지 않습니다(섬네일은 네이버 주소 그대로).
 - 순위는 **큐레이션(관리자 등록 코스) + 사용자 반응**에 키워드 일치·동선·출처 일치를 더한 점수입니다. 범위는 전국이고, 큐레이션이 없는 지역은 코스를 자동으로 조합합니다.
 
 ## 2. 기술 스택
@@ -134,7 +135,8 @@ npm run lint
 | `healing-room:date-course:franchise-names` | 체인 판별 목록 (흔한 이름·브랜드, `FranchiseNames`) | 1일 (자동 코스를 다시 만들 때 새로) |
 | `healing-room:date-course:places:nearby:{위도}:{경도}:{검색어}` | 코스에 넣을 장소 찾기 결과 | 10분 |
 | `healing-room:date-course:naver-local:{검색어}` | 네이버 지역 검색 결과 (동네 + 가게 이름) | 1일 (못 찾았으면 10분) |
-| `healing-room:date-course:naver-search-count:{날짜}` | 그날(한국 시간) 네이버 검색 API 부른 수 (하루 한도 확인) | 2일 |
+| `healing-room:date-course:naver-image:{검색어}` | 네이버 이미지 검색 결과 (섬네일 주소) | 1일 (없으면 10분) |
+| `healing-room:date-course:naver-search-count:{날짜}` | 그날(한국 시간) 네이버 검색 API(지역·이미지 합쳐서) 부른 수 (하루 한도 확인) | 2일 |
 | `healing-room:date-course:address:{주소}` | 주소 찾기 결과 (일정에 직접 넣을 가게, Geocoding) | 1일 (못 찾았으면 10분) |
 | `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 (못 찾았으면 10분: 키를 막 넣었거나 잠깐 오류여도 하루 내내 빈 결과가 나가지 않게) |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
@@ -202,6 +204,7 @@ cd backend
 | GET | `/api/addresses?q=` | 주소 찾기(2~60자, 데이터에 없는 가게를 일정에 직접 넣을 때) → 최대 5개 `[{ roadAddress, jibunAddress, lat, lng }]`. 네이버 Geocoding 만 쓰고 하루 한도·캐시는 지역 검색과 같음. 키가 없거나 한도를 넘으면 503 |
 | GET | `/api/places/nearby?lat=&lng=&q=` | 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름이나 업종에 q 가 든 곳 10곳. 띄어 쓴 말은 따로 봄("카페 높" → 이름·업종에 "카페"도 "높"도 든 곳, 최대 4개). 공개된 "이용자가 알려 준 곳"(분류 `custom`, id 0)도 섞음 `[{ place, reasons, distanceMeters }]`. 순서: 이름이 같음 → 이름이 q 로 시작 → 업종이 q("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순. 10분 캐시. q 없음·국외 좌표 400 |
 | GET | `/api/places/naver?lat=&lng=&area=&q=` | 네이버 지역 검색으로 가게 찾기(우리 데이터에 없을 때): 검색어 앞에 `area`(앞 장소의 시도·시군구)를 붙여 부르고 (lat, lng) 10km 안만 가까운 순, 최대 5곳 `[{ place, reasons, distanceMeters }]` (분류 `naver`, id 0). 키가 없거나 하루 한도를 넘으면 503 |
+| GET | `/api/places/images?q=` | 네이버 이미지 검색(2~60자) → 최대 6장 `[{ title, thumbnail, width, height }]` (https 섬네일만). 키가 없거나 한도를 넘으면 503 |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
