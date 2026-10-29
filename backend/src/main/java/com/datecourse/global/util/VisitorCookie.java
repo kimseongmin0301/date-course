@@ -44,6 +44,12 @@ public final class VisitorCookie {
     /** 있으면 그 id, 없으면 새로 만들어 쿠키를 내려보낸다. 있어도 다시 내려보내 1년을 늘린다 */
     public static UUID ensure(HttpServletRequest request, HttpServletResponse response) {
         UUID id = read(request).orElseGet(UUID::randomUUID);
+        set(request, response, id);
+        return id;
+    }
+
+    /** 쿠키를 이 id 로 바꾼다 (다른 기기에서 로그인·로그아웃할 때) */
+    public static void set(HttpServletRequest request, HttpServletResponse response, UUID id) {
         ResponseCookie cookie = ResponseCookie.from(NAME, id.toString())
                 .path("/")
                 .httpOnly(true)
@@ -52,7 +58,14 @@ public final class VisitorCookie {
                 .maxAge(MAX_AGE)
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        return id;
+    }
+
+    /** 요청한 사람의 IP. 앱은 127.0.0.1 에만 열려 있어 nginx 가 넣은 X-Real-IP 를 믿되, 직접 온 요청(로컬 개발)이면 그 주소 */
+    public static String clientIp(HttpServletRequest request) {
+        String remote = request.getRemoteAddr();
+        String real = request.getHeader("X-Real-IP");
+        boolean fromProxy = "127.0.0.1".equals(remote) || "0:0:0:0:0:0:0:1".equals(remote) || "::1".equals(remote);
+        return fromProxy && real != null && !real.isBlank() ? real.strip() : remote;
     }
 
     /** nginx 뒤에서는 X-Forwarded-Proto 로 안다 (앱은 127.0.0.1 에만 열려 있어 nginx 만 이 헤더를 보낼 수 있음) */

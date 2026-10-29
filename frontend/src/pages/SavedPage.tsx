@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import AccountBox from '../components/AccountBox'
 import { api } from '../lib/api'
 import type { PlanSummary } from '../lib/types'
 
@@ -8,11 +9,13 @@ export default function SavedPage() {
   const [plans, setPlans] = useState<PlanSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const load = () => {
     api<PlanSummary[]>('/plans')
       .then(setPlans)
       .catch((e: Error) => setError(e.message))
-  }, [])
+  }
+
+  useEffect(load, [])
 
   async function remove(courseId: number) {
     if (!window.confirm('이 일정을 지울까요?')) return
@@ -28,8 +31,9 @@ export default function SavedPage() {
     <section>
       <h1>내 저장</h1>
       <p className="muted small">
-        로그인 없이 이 브라우저의 쿠키로 구분해요. 브라우저를 바꾸거나 쿠키를 지우면 보이지 않아요.
+        로그인 없이 이 브라우저의 쿠키로 구분해요. 브라우저를 바꾸거나 쿠키를 지우면 보이지 않으니, 다른 기기에서도 보려면 아래에서 코드를 만들어 주세요.
       </p>
+      <AccountBox onChanged={load} />
       {error && <p className="notice">{error}</p>}
       {!plans && !error && <p className="muted">불러오는 중…</p>}
       {plans && plans.length === 0 && (

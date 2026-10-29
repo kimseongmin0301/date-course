@@ -141,6 +141,12 @@ public class PlanService {
         return get(visitor, courseId);
     }
 
+    /** 다른 기기에서 로그인할 때: 이 브라우저(from)의 일정을 계정(to)으로 옮긴다. 옮긴 수 */
+    @org.springframework.transaction.annotation.Transactional
+    public int moveAll(UUID from, UUID to) {
+        return plans.move(from, to);
+    }
+
     public void delete(UUID visitor, long courseId) {
         if (!plans.delete(visitor, courseId)) {
             throw CourseException.notFound();

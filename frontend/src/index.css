@@ -1030,3 +1030,50 @@ button:disabled {
   border-radius: 8px;
   background: var(--line);
 }
+
+/* 내 저장: 다른 기기에서도 보기 (코드 + 비밀번호) */
+.account-box {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.account-box p {
+  margin: 0 0 6px;
+}
+
+.account-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.account-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.account-form input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-message {
+  color: var(--text);
+}

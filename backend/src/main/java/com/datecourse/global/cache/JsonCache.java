@@ -73,6 +73,17 @@ public class JsonCache {
         }
     }
 
+    /** 카운터의 지금 값 (없으면 0). Redis 가 안 되면 -1 */
+    public long counter(String key) {
+        try {
+            String value = redis.opsForValue().get(prefix + key);
+            return value == null ? 0 : Long.parseLong(value);
+        } catch (RuntimeException e) {
+            log.warn("카운터 읽기 실패 {}: {}", prefix + key, e.getMessage());
+            return -1;
+        }
+    }
+
     /** 원본이 바뀌었을 때 지운다 */
     public void evict(String key) {
         try {

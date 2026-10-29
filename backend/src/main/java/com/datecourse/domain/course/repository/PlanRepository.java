@@ -69,6 +69,26 @@ public class PlanRepository {
                 .param("visitor", visitor).param("course", courseId).update() > 0;
     }
 
+    /**
+     * from 방문자의 일정을 모두 to 로 옮긴다 (다른 기기에서 로그인할 때). 같은 코스가 둘 다 있으면 나중에 저장한 쪽을 남긴다.
+     * 옮긴 수(from 에 있던 일정 수)를 돌려준다
+     */
+    public int move(UUID from, UUID to) {
+        int count = jdbc.sql("SELECT count(*) FROM saved_plan WHERE visitor_id = :from").param("from", from).query(Integer.class).single();
+        if (count == 0) {
+            return 0;
+        }
+        jdbc.sql("""
+                INSERT INTO saved_plan (visitor_id, course_id, plan_date, start_minute, steps, created_at, updated_at)
+                SELECT :to, course_id, plan_date, start_minute, steps, created_at, updated_at FROM saved_plan WHERE visitor_id = :from
+                ON CONFLICT (visitor_id, course_id) DO UPDATE SET plan_date = EXCLUDED.plan_date, start_minute = EXCLUDED.start_minute,
+                    steps = EXCLUDED.steps, updated_at = EXCLUDED.updated_at
+                WHERE saved_plan.updated_at < EXCLUDED.updated_at""")
+                .param("from", from).param("to", to).update();
+        jdbc.sql("DELETE FROM saved_plan WHERE visitor_id = :from").param("from", from).update();
+        return count;
+    }
+
     public boolean courseExists(long courseId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM course WHERE id = :id)").param("id", courseId).query(Boolean.class).single();
     }

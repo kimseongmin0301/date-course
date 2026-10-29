@@ -7,7 +7,7 @@
 
 **데이트코스 추천**: 지도에서 지역과 키워드(분위기·활동·실내외·예산)를 고르면, 순위가 매겨진 데이트 코스와 근처 식당·카페를 보여주고, 그 코스로 내 일정(바꾸기·넣기·시간표)을 짜서 저장하는 웹 서비스입니다. 주소 `https://date-course.kimseongmin.co.kr`.
 
-- **로그인은 없습니다.** 일정 저장(·앞으로 좋아요·다녀왔어요)은 브라우저마다 만드는 방문자 id(쿠키 `dc_vid`)로 구분합니다. 기기 정보(브라우저 지문 등)로 사람을 알아내려 하지 않습니다. 로그인은 관리자 화면에만 둡니다(예정).
+- **로그인은 없습니다.** 일정 저장(·앞으로 좋아요·다녀왔어요)은 브라우저마다 만드는 방문자 id(쿠키 `dc_vid`)로 구분합니다. 기기 정보(브라우저 지문 등)로 사람을 알아내려 하지 않습니다. 다른 기기에서도 보고 싶은 사람만 "내 저장"에서 **코드 + 비밀번호**를 만들어 씁니다(이메일·전화 없음, 7절 "다른 기기에서도 보기"). 관리자 로그인은 예정.
 - 장소는 **공공데이터 상가(상권)정보와 한국관광공사 TourAPI** 두 곳에서 모아 중복을 합칩니다. 지도 서비스의 리뷰·별점을 긁어 오지 않습니다(약관 위반).
 - **무료로만 운영합니다.** 그래서 쓰지 않는 것:
   - 카카오 API: 2026-07-21 부터 카카오맵 API 무료 쿼터는 계정의 첫 번째 앱에만 주고, 그 밖에는 결제 수단(비즈월렛)을 연결해야 합니다.
@@ -54,6 +54,8 @@
 │     │  │                         CourseController /api/courses·/api/courses/{id}·…/alternatives·/api/places/nearby·/api/places/naver,
 │     │  │                         PlanController·PlanService·PlanRepository (내 일정 저장 /api/plans, saved_plan) (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  ├─ account/               다른 기기에서도 보기: AccountController /api/account·/login·/logout, AccountService(코드·잠금·일정 옮기기),
+│     │  │                         AccountRepository(plan_account), util/PasswordHasher(PBKDF2)
 │     │  ├─ suggestion/            이용자가 알려 준 가게 (SuggestionService: 모으기·3명이면 공개·관리자 승인, SuggestionRepository,
 │     │  │                         ProfanityFilter: 힐링룸과 같은 욕설·음란어 목록 resources/moderation/)
 │     │  └─ collector/             장소 수집 (6절 "장소 수집기")
@@ -123,6 +125,7 @@ npm run lint
 | `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
 | `V3__place_badge.sql` | `place_badge` (공공기관 지정 표시: 모범음식점). 엔티티 없이 JDBC 로만 씀 | ✅ |
 | `V4__saved_plan.sql` | `saved_plan` (내 일정 저장: 방문자 쿠키 id·코스마다 하나, steps JSONB 에 place id·머무는 시간·고정 도착). 엔티티 없이 JDBC | ✅ |
+| `V6__plan_account.sql` | `plan_account` (다른 기기에서도 보기: 코드 8자·방문자 id·비밀번호 해시, 연락처 없음). 엔티티 없이 JDBC | ✅ |
 | `V5__place_suggestion.sql` | `place_suggestion` (이용자가 알려 준 가게: 직접 넣은 곳을 모아 3명이거나 관리자 승인이면 장소 찾기에 공개). 엔티티 없이 JDBC | ✅ |
 
 ## 5-1. 캐시는 Redis
@@ -145,6 +148,7 @@ npm run lint
 | `healing-room:date-course:naver-search-count:{날짜}` | 그날(한국 시간) 네이버 검색 API(지역·이미지 합쳐서) 부른 수 (하루 한도 확인) | 2일 |
 | `healing-room:date-course:address:{주소}` | 주소 찾기 결과 (일정에 직접 넣을 가게, Geocoding) | 1일 (못 찾았으면 10분) |
 | `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 (못 찾았으면 10분: 키를 막 넣었거나 잠깐 오류여도 하루 내내 빈 결과가 나가지 않게) |
+| `healing-room:date-course:account-fail:code:{코드}`, `…:account-fail:ip:{IP}` | 코드 로그인 틀린 수 (코드 5번·IP 20번이면 잠금) | 15분 |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
@@ -211,6 +215,10 @@ cd backend
 | GET | `/api/places/nearby?lat=&lng=&q=` | 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름이나 업종에 q 가 든 곳 10곳. 띄어 쓴 말은 따로 봄("카페 높" → 이름·업종에 "카페"도 "높"도 든 곳, 최대 4개). 공개된 "이용자가 알려 준 곳"(분류 `custom`, id 0)도 섞음 `[{ place, reasons, distanceMeters }]`. 순서: 이름이 같음 → 이름이 q 로 시작 → 업종이 q("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순. 10분 캐시. q 없음·국외 좌표 400 |
 | GET | `/api/places/naver?lat=&lng=&area=&q=` | 네이버 지역 검색으로 가게 찾기(우리 데이터에 없을 때): 검색어 앞에 `area`(앞 장소의 시도·시군구)를 붙여 부르고 (lat, lng) 10km 안만 가까운 순, 최대 5곳 `[{ place, reasons, distanceMeters }]` (분류 `naver`, id 0). 키가 없거나 하루 한도를 넘으면 503 |
 | GET | `/api/places/images?q=` | 네이버 이미지 검색(2~60자) → 최대 6장 `[{ title, thumbnail, width, height }]` (https 섬네일만). 키가 없거나 한도를 넘으면 503 |
+| GET | `/api/account` | 이 브라우저가 코드로 묶였는지 `{ linked, code }` (code 는 "K7QM-29XD") |
+| POST | `/api/account` | 코드 만들기 `{ password }`(6~64자) → 201 `{ linked: true, code }`. 지금 쿠키(없으면 만들어)의 방문자 id 에 묶음. 이미 있으면 409 |
+| POST | `/api/account/login` | `{ code, password }` → `{ code, moved }`. 맞으면 이 브라우저의 일정을 계정으로 옮기고(같은 코스는 나중에 저장한 쪽) 쿠키를 계정 id 로 바꿈. 틀리면 401(없는 코드도 같은 말·같은 시간), 코드 5번·IP 20번 틀리면 15분 429 |
+| POST | `/api/account/logout` | 이 브라우저 쿠키를 새 무작위 id 로 → 204 (계정 일정은 그대로) |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
@@ -235,6 +243,12 @@ cd backend
 - **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 내 일정의 일부로 임시 저장·서버 저장되고(위 "저장"), "원래 코스로"로 되돌립니다. 예전 `localStorage` `course-swaps:{코스id}` 저장분은 처음 열 때 내 일정으로 옮깁니다(`loadDraft`). 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로. 사진이 없는 단계는 "📷 네이버 이미지 보기"(누를 때만 `GET /api/places/images`).
 - **가고 싶은 곳 찾기 순서**: 우리 데이터(`/api/places/nearby`) → 없으면 바로 네이버 지역 검색(`/api/places/naver`, 있어도 "네이버에서 찾기") → "이름과 주소로 직접 넣기"(`/api/addresses`). 직접 넣은 곳은 분류 `custom`, 네이버에서 고른 곳은 `naver`(둘 다 id 0)로 화면이 이름·주소·좌표를 저장 요청에 담습니다(`lib/plan.ts` `toRequest`).
+
+### 다른 기기에서도 보기 (AccountService)
+- 기본은 로그인 없이 이 브라우저 쿠키(`dc_vid`)에만 저장합니다. 원하는 사람만 "내 저장"(`components/AccountBox`)에서 **비밀번호를 정하면 서버가 코드 8자**(헷갈리는 0·O·1·I·L 뺀 대문자·숫자, 화면은 "K7QM-29XD")를 만들어 지금 방문자 id 에 묶습니다(`plan_account`). 이메일·전화는 받지 않아 **코드·비밀번호를 잊으면 되찾을 수 없습니다**(화면에서 적어 두라고 알림).
+- 다른 기기에서 코드 + 비밀번호로 로그인하면, 그 브라우저에 저장돼 있던 일정을 계정으로 옮기고(`PlanService.moveAll`, 같은 코스는 나중에 저장한 쪽) 쿠키를 계정의 방문자 id 로 바꿉니다. 그 브라우저가 이미 다른 계정이면 섞지 않고 바꾸기만 합니다. 로그아웃하면 그 브라우저는 새 무작위 id 가 됩니다.
+- 비밀번호는 PBKDF2-HMAC-SHA256(210,000번, 소금 16바이트)로만 저장합니다(`PasswordHasher`). 없는 코드도 같은 계산을 해서 걸린 시간으로 코드가 있는지 알 수 없게 합니다. IP 는 nginx 의 `X-Real-IP` 를 루프백에서 온 요청일 때만 믿습니다(`VisitorCookie.clientIp`).
+- 계정은 결국 "방문자 id 를 다시 받는 열쇠"라, 일정 저장·이용자 제안 등 다른 기능은 바뀌지 않습니다.
 
 ### 이용자가 알려 준 가게 (SuggestionService)
 - 일정을 저장할 때 직접 넣은 가게를 `place_suggestion` 에 모읍니다. **바로 공개하지 않습니다.**
@@ -299,7 +313,9 @@ cd backend
 - [x] 내 일정에 데이터에 없는 가게 직접 넣기(Geocoding), 이용자가 알려 준 가게 모으기·공개(V5)
 - [x] 우리 데이터에 없으면 네이버 지역 검색(NAVER API HUB), 사진 없는 곳 네이버 이미지 보기
 - [x] 문서 최신화 (2026-10-29: README·기획안·동작방식, 코스 11,809개 기준)
-- [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키 안내), 관리자 화면(제안 승인)
+- [x] 다른 기기에서도 보기: 코드 + 비밀번호(V6), 로그인하면 이 브라우저 일정을 계정으로 합치기
+- [x] 머무는 시간 입력: 휴대폰에서 다 지우고 새로 쓰기, −10/+10
+- [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키·코드 계정 안내), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
 - [x] 지역 검색: 동네·명소(우리 데이터), 주소(네이버 Geocoding), 검색하면 바로 그 위치로
