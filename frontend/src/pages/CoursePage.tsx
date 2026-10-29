@@ -325,7 +325,7 @@ export default function CoursePage() {
           </li>
         )}
         {picker.items?.map((a, i) => (
-          <li key={a.place.id} className="alternative">
+          <li key={`${a.place.id}-${a.place.lat}-${a.place.lng}`} className="alternative">
             <button type="button" className="alt-letter" onClick={() => focus(a.place.lat, a.place.lng)} aria-label={`${a.place.name} 지도에서 보기`}>
               {LETTERS[i]}
             </button>

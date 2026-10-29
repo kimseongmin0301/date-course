@@ -12,6 +12,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.datecourse.domain.collector.util.Geo;
@@ -27,6 +29,7 @@ import com.datecourse.domain.course.exception.CourseException;
 import com.datecourse.domain.course.repository.CourseQueryRepository;
 import com.datecourse.domain.course.repository.PlanRepository;
 import com.datecourse.domain.course.util.CoursePlanner;
+import com.datecourse.domain.suggestion.service.SuggestionService;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,6 +41,8 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Service
 public class PlanService {
+
+    private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
     public static final int MAX_STEPS = 15;
     public static final int MAX_PLANS = 50;
@@ -54,8 +59,10 @@ public class PlanService {
     private final PlanRepository plans;
     private final CourseQueryRepository places;
     private final JsonMapper json;
+    private final SuggestionService suggestions;
 
-    public PlanService(PlanRepository plans, CourseQueryRepository places, JsonMapper json) {
+    public PlanService(PlanRepository plans, CourseQueryRepository places, JsonMapper json, SuggestionService suggestions) {
+        this.suggestions = suggestions;
         this.plans = plans;
         this.places = places;
         this.json = json;
@@ -113,6 +120,16 @@ public class PlanService {
             throw CourseException.badRequest("일정은 " + MAX_PLANS + "개까지 저장할 수 있어요. 내 저장에서 지난 일정을 지워 주세요.");
         }
         plans.upsert(visitor, courseId, date, start, json.writeValueAsString(steps));
+        // 직접 넣은 가게는 "이용자가 알려 준 가게"로 모은다 (실패해도 일정 저장은 그대로)
+        for (Stored s : steps) {
+            if (s.custom() != null) {
+                try {
+                    suggestions.record(visitor, s.custom().name(), s.custom().address(), s.custom().lat(), s.custom().lng());
+                } catch (RuntimeException e) {
+                    log.warn("이용자가 알려 준 가게를 모으지 못함: {}", e.getMessage());
+                }
+            }
+        }
         return get(visitor, courseId);
     }
 

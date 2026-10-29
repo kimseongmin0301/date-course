@@ -37,7 +37,8 @@ class PlanServiceTests {
 
     PlanRepository plans = mock(PlanRepository.class);
     CourseQueryRepository places = mock(CourseQueryRepository.class);
-    PlanService service = new PlanService(plans, places, JsonMapper.builder().build());
+    com.datecourse.domain.suggestion.service.SuggestionService suggestions = mock(com.datecourse.domain.suggestion.service.SuggestionService.class);
+    PlanService service = new PlanService(plans, places, JsonMapper.builder().build(), suggestions);
     UUID visitor = UUID.randomUUID();
 
     static CourseQueryRepository.Candidate place(long id, String name, double northMeters) {
@@ -126,6 +127,8 @@ class PlanServiceTests {
         assertThat(custom.place().name()).isEqualTo("카페 높");
         assertThat(custom.place().sigungu()).isEqualTo("북구");
         assertThat(custom.reasons()).containsExactly("직접 넣은 곳");
+        verify(suggestions).record(eq(visitor), eq("카페 높"), eq("울산광역시 북구 정자1길 111"), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble());   // 이용자가 알려 준 가게로 모은다
 
         List<int[]> t = PlanService.timeline(List.of(new PlanService.Stored(11, "spot", 60, null, "course", 1),
                 new PlanService.Stored(null, "mine", 40, null, "added", null, new PlanService.Custom("카페 높", "주소", 37.5 + 670 / 111_320.0, 127.0))),

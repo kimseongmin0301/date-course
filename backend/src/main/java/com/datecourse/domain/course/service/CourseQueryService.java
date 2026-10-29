@@ -29,6 +29,8 @@ import com.datecourse.domain.course.util.CoursePlanner;
 import com.datecourse.domain.place.entity.PlaceCategory;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
 import com.datecourse.domain.keyword.service.KeywordService;
+import com.datecourse.domain.suggestion.repository.SuggestionRepository;
+import com.datecourse.domain.suggestion.service.SuggestionService;
 import com.datecourse.global.cache.JsonCache;
 
 import tools.jackson.core.type.TypeReference;
@@ -49,8 +51,10 @@ public class CourseQueryService {
     private final CourseQueryRepository repository;
     private final KeywordService keywordService;
     private final JsonCache cache;
+    private final SuggestionService suggestions;
 
-    public CourseQueryService(CourseQueryRepository repository, KeywordService keywordService, JsonCache cache) {
+    public CourseQueryService(CourseQueryRepository repository, KeywordService keywordService, JsonCache cache, SuggestionService suggestions) {
+        this.suggestions = suggestions;
         this.repository = repository;
         this.keywordService = keywordService;
         this.cache = cache;
@@ -200,16 +204,44 @@ public class CourseQueryService {
         double la = Math.round(lat * 1000) / 1000.0;
         double ln = Math.round(lng * 1000) / 1000.0;
         return cache.getOrLoad("places:nearby:" + la + ":" + ln + ":" + q, SEARCH_TTL, new TypeReference<List<AlternativeResponse>>() { },
-                () -> repository.candidates(la, ln, NEARBY_RADIUS_M, ALL_CATEGORIES, words).stream()
-                        .map(c -> new Scored(c, Geo.distanceMeters(la, ln, c.lat(), c.lng()), 0))
-                        .filter(x -> x.meters() <= NEARBY_RADIUS_M)
-                        // 이름이 같은 곳 → 이름이 검색어로 시작 → 업종이 검색어("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순
-                        .sorted(Comparator.comparingInt((Scored x) -> nearbyRank(x.c(), q)).thenComparingDouble(Scored::meters))
-                        .limit(NEARBY_MAX)
-                        .map(x -> new AlternativeResponse(toPlace(x.c()),
-                                reasons(x.c().badge(), x.c().tour(), x.c().sbiz(), x.c().franchise(), x.c().category()),
-                                (int) Math.round(x.meters())))
-                        .toList());
+                () -> {
+                    List<CourseQueryRepository.Candidate> places = repository.candidates(la, ln, NEARBY_RADIUS_M, ALL_CATEGORIES, words);
+                    List<Found> found = new ArrayList<>();
+                    for (CourseQueryRepository.Candidate c : places) {
+                        found.add(new Found(new AlternativeResponse(toPlace(c), reasons(c.badge(), c.tour(), c.sbiz(), c.franchise(), c.category()), 0),
+                                nearbyRank(c, q), Geo.distanceMeters(la, ln, c.lat(), c.lng())));
+                    }
+                    // 이용자가 알려 준 가게 (공개된 것만). 그새 우리 데이터에 들어온 같은 가게가 있으면 뺀다
+                    for (SuggestionRepository.Row s : suggestions.publicNear(la, ln, NEARBY_RADIUS_M, words)) {
+                        boolean inData = places.stream().anyMatch(c -> c.normalizedName().equals(s.normalizedName())
+                                && Geo.distanceMeters(c.lat(), c.lng(), s.lat(), s.lng()) <= SuggestionService.SAME_PLACE_M);
+                        if (!inData) {
+                            int rank = s.normalizedName().equals(q) ? 0 : s.normalizedName().startsWith(q) ? 1 : 3;
+                            found.add(new Found(new AlternativeResponse(suggestedPlace(s), List.of(SUGGESTED), 0),
+                                    rank, Geo.distanceMeters(la, ln, s.lat(), s.lng())));
+                        }
+                    }
+                    return found.stream()
+                            .filter(x -> x.meters() <= NEARBY_RADIUS_M)
+                            // 이름이 같은 곳 → 이름이 검색어로 시작 → 업종이 검색어("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순
+                            .sorted(Comparator.comparingInt(Found::rank).thenComparingDouble(Found::meters))
+                            .limit(NEARBY_MAX)
+                            .map(x -> new AlternativeResponse(x.a().place(), x.a().reasons(), (int) Math.round(x.meters())))
+                            .toList();
+                });
+    }
+
+    /** 장소 찾기 결과 하나 (우리 장소 또는 이용자가 알려 준 가게) */
+    private record Found(AlternativeResponse a, int rank, double meters) {
+    }
+
+    /** 이용자가 알려 준 가게임을 알리는 이유 (화면은 이 장소를 "직접 넣은 곳"처럼 일정에 넣는다) */
+    public static final String SUGGESTED = "이용자가 알려 준 곳";
+
+    /** 이용자가 알려 준 가게 → 장소 (id 0, 분류 custom: 일정에 넣으면 직접 넣은 곳처럼 이름·주소·좌표로 저장) */
+    static PlaceResponse suggestedPlace(SuggestionRepository.Row s) {
+        return new PlaceResponse(0, s.name(), null, "custom", null, s.lat(), s.lng(), s.sido(), s.sigungu(), s.address(), null,
+                null, null, null, naverMapUrl(s.name(), null, s.sigungu()));
     }
 
     /**

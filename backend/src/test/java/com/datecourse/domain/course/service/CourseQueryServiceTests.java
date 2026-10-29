@@ -30,7 +30,8 @@ class CourseQueryServiceTests {
     CourseQueryRepository repository = mock(CourseQueryRepository.class);
     KeywordService keywordService = mock(KeywordService.class);
     JsonCache cache = mock(JsonCache.class);
-    CourseQueryService service = new CourseQueryService(repository, keywordService, cache);
+    com.datecourse.domain.suggestion.service.SuggestionService suggestions = mock(com.datecourse.domain.suggestion.service.SuggestionService.class);
+    CourseQueryService service = new CourseQueryService(repository, keywordService, cache, suggestions);
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -192,6 +193,25 @@ class CourseQueryServiceTests {
         given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq(List.of("카페", "높")))).willReturn(List.of(
                 cand(41, "높", "cafe", "카페", 300, false, false)));
         assertThat(service.nearbyPlaces(37.5, 127.0, "카페 높")).extracting(a -> a.place().name()).containsExactly("높");
+    }
+
+    @Test
+    void 공개된_이용자_제안도_장소_찾기에_나오고_우리_데이터에_들어오면_뺀다() {
+        java.util.UUID v = java.util.UUID.randomUUID();
+        var suggested = new com.datecourse.domain.suggestion.repository.SuggestionRepository.Row(1, v, "카페 높", "카페높", "울산광역시 북구 정자1길 111",
+                37.5 + 100 / 111_320.0, 127.0, "울산광역시", "북구", "public", null, java.time.OffsetDateTime.now());
+        var already = new com.datecourse.domain.suggestion.repository.SuggestionRepository.Row(2, v, "블루", "블루", "주소",
+                37.5, 127.0, null, null, "public", null, java.time.OffsetDateTime.now());
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), anyList(), eq(List.of("카페")))).willReturn(List.of(
+                cand(51, "블루", "cafe", "카페", 0, false, false),
+                cand(52, "동네카페", "cafe", "카페", 400, false, false)));
+        given(suggestions.publicNear(eq(37.5), eq(127.0), anyDouble(), eq(List.of("카페")))).willReturn(List.of(suggested, already));
+
+        var found = service.nearbyPlaces(37.5, 127.0, "카페");
+
+        assertThat(found).extracting(a -> a.place().name()).containsExactly("카페 높", "블루", "동네카페");
+        assertThat(found.get(0).place().category()).isEqualTo("custom");
+        assertThat(found.get(0).reasons()).containsExactly(CourseQueryService.SUGGESTED);
     }
 
     @Test

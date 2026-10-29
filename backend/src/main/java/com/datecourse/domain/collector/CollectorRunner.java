@@ -17,6 +17,8 @@ import com.datecourse.domain.collector.service.SbizImporter;
 import com.datecourse.domain.collector.service.TourCollector;
 import com.datecourse.domain.course.service.AutoCourseService;
 import com.datecourse.domain.course.service.CourseScoreService;
+import com.datecourse.domain.suggestion.repository.SuggestionRepository;
+import com.datecourse.domain.suggestion.service.SuggestionService;
 
 /**
  * 장소 수집을 명령으로 돌린다 (웹 서버 없이 실행하고 끝나면 종료).
@@ -28,6 +30,8 @@ import com.datecourse.domain.course.service.CourseScoreService;
  *   ./gradlew bootRun --args="--collect=courses"         자동 코스 다시 만들기 + 순위 점수
  *   ./gradlew bootRun --args="--collect=scores"          코스 순위 점수만 다시 계산 (매일 새벽에도 저절로 돔)
  *   ./gradlew bootRun --args="--collect=model --path=../data/model"  모범음식점 CSV → 지정 표시, 그 뒤 코스·점수 다시
+ *   ./gradlew bootRun --args="--collect=suggestions"                 이용자가 알려 준 가게 (기다리는 것·공개된 것) 보기
+ *   ./gradlew bootRun --args="--collect=suggestions --approve=12"    관리자 승인 → 장소 찾기에 공개 (--reject=12 는 거절)
  * tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 다시 만든다.
  */
 @Component
@@ -41,10 +45,13 @@ public class CollectorRunner implements ApplicationRunner {
     private final AutoCourseService courses;
     private final CourseScoreService scores;
     private final ModelRestaurantImporter model;
+    private final SuggestionService suggestions;
     private final ConfigurableApplicationContext context;
 
     public CollectorRunner(TourCollector tour, SbizImporter sbiz, PlaceKeywordTagger tagger, AutoCourseService courses,
-                           CourseScoreService scores, ModelRestaurantImporter model, ConfigurableApplicationContext context) {
+                           CourseScoreService scores, ModelRestaurantImporter model, SuggestionService suggestions,
+                           ConfigurableApplicationContext context) {
+        this.suggestions = suggestions;
         this.tour = tour;
         this.sbiz = sbiz;
         this.tagger = tagger;
@@ -93,8 +100,9 @@ public class CollectorRunner implements ApplicationRunner {
                     model.importPath(Path.of(path == null ? "../data/model" : path));
                     rebuildCourses();
                 }
+                case "suggestions" -> suggestions(args);
                 default -> {
-                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores, model)", what.get(0));
+                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores, model, suggestions)", what.get(0));
                     exitCode = 2;
                 }
             }
@@ -104,6 +112,26 @@ public class CollectorRunner implements ApplicationRunner {
         }
         int code = exitCode;
         System.exit(SpringApplication.exit(context, () -> code));
+    }
+
+    /** 이용자가 알려 준 가게: 승인·거절하거나 목록을 보여준다 (방문자 id 는 앞 8자리만) */
+    private void suggestions(ApplicationArguments args) {
+        Integer approve = intOption(args, "approve");
+        Integer reject = intOption(args, "reject");
+        if (approve != null) {
+            log.info("승인: {}", line(suggestions.approve(approve)));
+        } else if (reject != null) {
+            log.info("거절: {}", line(suggestions.reject(reject)));
+        } else {
+            List<SuggestionRepository.Row> rows = suggestions.waiting(200);
+            log.info("이용자가 알려 준 가게 {}개 (pending: 모으는 중, review: 애매한 말이 있어 승인해야 공개, public: 공개)", rows.size());
+            rows.forEach(r -> log.info("  {}", line(r)));
+        }
+    }
+
+    private static String line(SuggestionRepository.Row r) {
+        return String.format("#%d [%s] %s | %s | 방문자 %s | %s", r.id(), r.status(), r.name(), r.address(),
+                r.visitorId().toString().substring(0, 8), r.createdAt().toLocalDate());
     }
 
     /** 장소가 바뀌면 키워드를 다시 붙이고, 그 키워드로 자동 코스를 다시 만든다 */

@@ -49,6 +49,8 @@
 │     │  │                         CourseScoreService(순위 점수, 매일 04:30), CourseQueryService·CourseQueryRepository(검색·상세),
 │     │  │                         CourseController GET /api/courses, GET /api/courses/{id} (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  ├─ suggestion/            이용자가 알려 준 가게 (SuggestionService: 모으기·3명이면 공개·관리자 승인, SuggestionRepository,
+│     │  │                         ProfanityFilter: 힐링룸과 같은 욕설·음란어 목록 resources/moderation/)
 │     │  └─ collector/             장소 수집 (6절 "장소 수집기")
 │     │     ├─ CollectorRunner     --collect=… 로 실행하면 웹 서버 없이 수집하고 종료
 │     │     ├─ client/             TourApiClient (areaBasedList2, 1,000개씩)
@@ -113,6 +115,7 @@ npm run lint
 | `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
 | `V3__place_badge.sql` | `place_badge` (공공기관 지정 표시: 모범음식점). 엔티티 없이 JDBC 로만 씀 | ✅ |
 | `V4__saved_plan.sql` | `saved_plan` (내 일정 저장: 방문자 쿠키 id·코스마다 하나, steps JSONB 에 place id·머무는 시간·고정 도착). 엔티티 없이 JDBC | ✅ |
+| `V5__place_suggestion.sql` | `place_suggestion` (이용자가 알려 준 가게: 직접 넣은 곳을 모아 3명이거나 관리자 승인이면 장소 찾기에 공개). 엔티티 없이 JDBC | ✅ |
 
 ## 5-1. 캐시는 Redis
 
@@ -152,6 +155,8 @@ cd backend
 ./gradlew bootRun --args="--collect=courses"         # 자동 코스 다시 만들기 + 순위 점수
 ./gradlew bootRun --args="--collect=scores"          # 순위 점수만 (매일 04:30 에도 저절로 돔)
 ./gradlew bootRun --args="--collect=model --path=../data/model"  # 모범음식점 CSV → place_badge, 그 뒤 코스·점수 다시
+./gradlew bootRun --args="--collect=suggestions"               # 이용자가 알려 준 가게 목록 (기다리는 것·공개된 것)
+./gradlew bootRun --args="--collect=suggestions --approve=12"  # 관리자 승인 → 장소 찾기에 공개 (--reject=12 는 거절)
 # tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 저절로 돈다
 ```
 - 웹 서버 없이 뜨고(`DateCourseApplication` 이 `--collect` 를 보면 끔) 끝나면 종료합니다. 돌고 있는 서버와 포트가 겹치지 않습니다. devtools 재시작도 꺼서, 수집 중에 다른 곳에서 빌드해도 수집이 처음부터 다시 시작되지 않습니다.
@@ -192,7 +197,7 @@ cd backend
 | GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `station` 역(지하철역 좌표가 데이터에 없어서 이름·지점명에 "반석역"이 든 가게 2곳 이상의 평균 좌표, 시군구마다 하나, 실제 역과 약 100m), `area` 시군구·행정동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등)과 법정동(지번 주소의 동: "반석동"은 행정동으로 노은3동이라), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때. 역·가게 이름은 못 찾음). "대전 반석역"처럼 앞에 시도를 쓰면 그 시도 안에서만(같은 이름이 여러 도시에 있어서). `radius` 는 지도에 보여줄 반경 제안 |
 | GET | `/api/courses/{id}/steps/{order}/alternatives` | 그 단계의 근처 대안(같은 역할: 구경·카페·식당, 원래 장소에서 600m 안) 좋은 순 5곳 `[{ place, reasons, distanceMeters }]`. 코스 만들 때와 같은 점수(`CoursePlanner.alternativeScore`), 코스에 든 곳·같은 가게는 뺌. 1시간 캐시(`courses:{id}:alt:{order}`). 없는 코스·단계 404 |
 | GET | `/api/addresses?q=` | 주소 찾기(2~60자, 데이터에 없는 가게를 일정에 직접 넣을 때) → 최대 5개 `[{ roadAddress, jibunAddress, lat, lng }]`. 네이버 Geocoding 만 쓰고 하루 한도·캐시는 지역 검색과 같음. 키가 없거나 한도를 넘으면 503 |
-| GET | `/api/places/nearby?lat=&lng=&q=` | 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름이나 업종에 q 가 든 곳 10곳. 띄어 쓴 말은 따로 봄("카페 높" → 이름·업종에 "카페"도 "높"도 든 곳, 최대 4개) `[{ place, reasons, distanceMeters }]`. 순서: 이름이 같음 → 이름이 q 로 시작 → 업종이 q("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순. 10분 캐시. q 없음·국외 좌표 400 |
+| GET | `/api/places/nearby?lat=&lng=&q=` | 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름이나 업종에 q 가 든 곳 10곳. 띄어 쓴 말은 따로 봄("카페 높" → 이름·업종에 "카페"도 "높"도 든 곳, 최대 4개). 공개된 "이용자가 알려 준 곳"(분류 `custom`, id 0)도 섞음 `[{ place, reasons, distanceMeters }]`. 순서: 이름이 같음 → 이름이 q 로 시작 → 업종이 q("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순. 10분 캐시. q 없음·국외 좌표 400 |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng }`, 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
@@ -212,10 +217,18 @@ cd backend
 - 검색 화면: 순위 핀(코스 가운데) → 카드나 핀을 누르면 그 코스의 단계 핀과 동선(점선)을 그리고 지도를 맞춥니다.
 - **핀은 모양부터 다르게**(`lib/naverMap.ts`): 순위는 분홍 물방울 마커+숫자(`rankIcon`), 코스를 고른 동안 다른 코스는 작고 연한 물방울+숫자(`rankIcon(n, true)`, 눌러서 바로 바꿈), 단계는 어두운 이름표 "① 카페"(`stepIcon`, 순서+역할), 근처 대안은 흰 바탕 글자 A~E(`altIcon`), 검색 위치는 파란 점(`targetIcon`).
 - 코스를 고르면 지도 위에 "◀ 2위 / 7 ▶ · 전체 보기"(`.course-nav`): 목록을 내리지 않고 코스를 넘겨 보고, 전체 보기는 고른 것을 풀고 검색한 넓이로 돌아갑니다.
-- **내 일정**(코스 상세, `lib/plan.ts`): 코스를 바탕으로 장소 바꾸기·**가고 싶은 곳 넣기**(단계 사이 "+ 여기에 가고 싶은 곳 넣기" → `GET /api/places/nearby` 로 앞 장소 근처 2km 에서 이름·업종으로 찾기. 데이터에 없는 가게는 "주소로 직접 넣기": 이름 + `GET /api/addresses` 로 고른 주소·좌표를 일정에 그대로 저장, 그 사람 일정에만 보이고 코스·순위에는 쓰지 않음)·빼기·순서 바꾸기(▲▼). **날짜·출발 시간(분 단위)**, 단계마다 **머무는 시간(1~720분 직접 입력)**과 **도착 시간 고정**(예약 등: 도착 = max(앞 출발 + 걷는 시간, 고정), 늦으면 경고)으로 시간표를 만듭니다. 화면(`timeline`)과 서버(`PlanService.timeline`)가 같은 식입니다.
+- **내 일정**(코스 상세, `lib/plan.ts`): 코스를 바탕으로 장소 바꾸기·**가고 싶은 곳 넣기**(단계 사이 "+ 여기에 가고 싶은 곳 넣기" → `GET /api/places/nearby` 로 앞 장소 근처 2km 에서 이름·업종으로 찾기. 데이터에 없는 가게는 "주소로 직접 넣기": 이름 + `GET /api/addresses` 로 고른 주소·좌표를 일정에 그대로 저장, 그 사람 일정에만 보이고 코스·순위에는 쓰지 않음. 저장할 때 "이용자가 알려 준 가게"로 모으고 아래 규칙으로 공개)·빼기·순서 바꾸기(▲▼). **날짜·출발 시간(분 단위)**, 단계마다 **머무는 시간(1~720분 직접 입력)**과 **도착 시간 고정**(예약 등: 도착 = max(앞 출발 + 걷는 시간, 고정), 늦으면 경고)으로 시간표를 만듭니다. 화면(`timeline`)과 서버(`PlanService.timeline`)가 같은 식입니다.
 - **저장(로그인 없음)**: "💾 저장" → `PUT /api/plans/{코스id}` 로 서버(`saved_plan`)에 저장, 다음에 와도 그대로. 방문자 구분은 쿠키 **`dc_vid`**(`global/util/VisitorCookie`: 무작위 UUID, HttpOnly·SameSite=Lax·https 면 Secure, 1년, 저장할 때 없으면 만듦). 쿠키에는 id 만 두고(4KB 제한·요청마다 전송) 일정은 서버에, 장소는 place id 만 두고 읽을 때 지금 DB 의 장소와 이어 붙입니다(화면이 보낸 이름·주소를 믿지 않음). 방문자당 50개·일정당 15곳. 저장 전 고친 내용은 브라우저 임시(`localStorage` `course-plan:{코스id}`, 저장하면 지움). 불러오는 순서: 임시 → 서버 저장본 → 원래 코스. "내 저장"(`/saved`)에서 목록·열기·지우기. 저장한 일정이 있는 자동 코스는 다시 만들 때 지우지 않고 숨깁니다(`AutoCourseService.removeStale`).
 - **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 **이 브라우저에만**(`localStorage` `course-swaps:{코스id}`, `lib/storage.ts`) 저장하고 "원래 장소로"·"원래 코스로"로 되돌립니다. 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
+
+### 이용자가 알려 준 가게 (SuggestionService)
+- 일정을 저장할 때 직접 넣은 가게를 `place_suggestion` 에 모읍니다. **바로 공개하지 않습니다.**
+- 같은 가게 = 정리한 이름이 같고 50m 안(수집기의 중복 규칙과 같음). **서로 다른 방문자 3명**이 같은 가게를 넣으면 가장 먼저 알려 준 것을 `public` 으로, 나머지는 `merged`.
+- 자동으로 거르기: 욕설·음란어 이름은 모으지 않음(힐링룸과 같은 목록 `resources/moderation/`, 문서·커밋에 목록의 단어를 쓰지 않음), 애매한 말(가리기 목록)이 든 이름은 `review`(관리자만 공개), 우리 장소 데이터에 이미 있으면 `existing`, 이미 공개된 가게면 `merged`, 같은 사람은 한 번만, 한 사람 하루 10개까지.
+- 관리자 승인·거절은 아직 화면이 없어 명령으로: `--collect=suggestions`, `--approve=ID`, `--reject=ID` (6절). 방문자 id 는 앞 8자리만 보여줍니다.
+- 공개된 가게는 **장소 찾기에만** 나오고(이유 "이용자가 알려 준 곳") 자동 코스·순위에는 쓰지 않습니다. 같은 가게가 우리 데이터(다음 분기 상가정보 등)에 들어오면 장소 찾기에서 저절로 빠집니다. 장소 찾기 결과는 10분 캐시라 공개된 뒤 같은 검색어에는 최대 10분 늦게 나옵니다.
+- 쿠키를 지우면 한 사람이 여러 방문자로 보일 수 있어 3명 기준은 완벽하지 않습니다(장난 방지 수준).
 
 ## 8. 코드 스타일
 
@@ -269,7 +282,8 @@ cd backend
 - [x] 화면: 근처 대안 보기·바꾸기(브라우저에 저장), 코스 넘겨 보기(◀ ▶ 전체 보기)
 - [x] 내 일정: 가고 싶은 곳 넣기·빼기·순서 바꾸기, 분 단위 시간표·도착 시간 고정
 - [x] 일정 저장(로그인 없이 쿠키 `dc_vid` + 서버 `saved_plan`, V4), 내 저장 화면
-- [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키 안내)
+- [x] 내 일정에 데이터에 없는 가게 직접 넣기(Geocoding), 이용자가 알려 준 가게 모으기·공개(V5)
+- [ ] 좋아요·다녀왔어요(반응), 개인정보처리방침(방문자 쿠키 안내), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
 - [x] 지역 검색: 동네·명소(우리 데이터), 주소(네이버 Geocoding), 검색하면 바로 그 위치로
