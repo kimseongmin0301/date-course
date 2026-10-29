@@ -7,12 +7,18 @@ import { altIcon, jumpTo, stepIcon } from '../lib/naverMap'
 import {
   clockText,
   defaultStay,
+  fromSaved,
   initialPlan,
   isChanged,
-  loadPlan,
-  savePlan,
+  loadDraft,
+  loadSaved,
+  samePlan,
+  saveDraft,
+  saveToServer,
+  STAY_MAX,
   timeline,
-  toIcs,
+  timeValue,
+  toMinutes,
   type Plan,
   type PlanRole,
   type PlanStep,
@@ -21,10 +27,16 @@ import type { AlternativeResponse, CourseDetail } from '../lib/types'
 import { useMap } from '../map/context'
 
 const LETTERS = 'ABCDEFGHIJ'
-const STAY_CHOICES = [20, 30, 45, 60, 75, 90, 120, 150, 180]
 const ALT_LABEL: Record<PlanRole, string> = { spot: '다른 구경거리 보기', cafe: '다른 카페 보기', meal: '다른 식당 보기', mine: '' }
 
 const roleLabel = (r: PlanRole) => (r === 'mine' ? '내 장소' : ROLE_LABEL[r])
+
+/** 저장 시각 → "10월 29일 14:02" */
+function savedLabel(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '방금'
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
 
 /** 지도·목록에 같이 보이는 후보 목록: 근처 대안(그 단계를 바꿈) 또는 장소 찾기(그 자리에 더함) */
 type Picker =
@@ -32,7 +44,8 @@ type Picker =
   | { kind: 'add'; index: number; items: AlternativeResponse[] | null; error: string | null; query: string }
 
 // 코스 상세 = 내 일정: 지도에 단계 이름표와 동선, 왼쪽에 시간표.
-// 장소 바꾸기(근처 대안)·더하기(이름으로 찾기)·빼기·순서 바꾸기, 출발 시간·머무는 시간 → 도착·출발 시간, 캘린더 저장
+// 장소 바꾸기(근처 대안)·더하기(이름으로 찾기)·빼기·순서 바꾸기, 출발 시간·머무는 시간(분)·도착 시간 고정 → 시간표.
+// "저장"하면 서버에 둔다 (쿠키의 방문자 id 로, 다음에 와도 그대로). 저장 전 고친 내용은 브라우저에 임시로 둔다
 export default function CoursePage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
@@ -42,6 +55,10 @@ export default function CoursePage() {
   const [error, setError] = useState<string | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
   const [picker, setPicker] = useState<Picker | null>(null)
+  /** 서버에 저장한 일정 (저장 안 했으면 null) */
+  const [saved, setSaved] = useState<{ plan: Plan; at: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     loadKeywords()
@@ -55,11 +72,16 @@ export default function CoursePage() {
     setPlan(null)
     setError(null)
     setPicker(null)
-    api<CourseDetail>(`/courses/${id}`)
-      .then((c) => {
+    setSaved(null)
+    setSaveError(null)
+    Promise.all([api<CourseDetail>(`/courses/${id}`), loadSaved(id)])
+      .then(([c, savedPlan]) => {
         if (cancelled) return
         setCourse(c)
-        setPlan(loadPlan(id, c))
+        const fromServer = savedPlan ? fromSaved(savedPlan, c) : null
+        if (fromServer && savedPlan) setSaved({ plan: fromServer, at: savedPlan.savedAt })
+        // 저장 안 한 고친 내용 → 저장한 일정 → 원래 코스 순서로
+        setPlan(loadDraft(id, c) ?? fromServer ?? initialPlan(c))
       })
       .catch((e: Error) => !cancelled && setError(e.message))
     return () => {
@@ -69,6 +91,7 @@ export default function CoursePage() {
 
   const steps = useMemo(() => (plan ? timeline(plan) : []), [plan])
   const changed = plan && course ? isChanged(plan, course) : false
+  const unsaved = plan && course ? (saved ? !samePlan(plan, saved.plan) : isChanged(plan, course)) : false
 
   // 단계 이름표·동선 (+ 열어 둔 후보 A~)
   useEffect(() => {
@@ -99,7 +122,22 @@ export default function CoursePage() {
 
   function update(next: Plan) {
     setPlan(next)
-    savePlan(id, next)
+    saveDraft(id, next)
+  }
+
+  async function save() {
+    if (!plan) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await saveToServer(id, plan)
+      setSaved({ plan, at: res.savedAt })
+      saveDraft(id, null)
+    } catch (e) {
+      setSaveError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   function updateSteps(fn: (list: PlanStep[]) => PlanStep[]) {
@@ -157,6 +195,7 @@ export default function CoursePage() {
       place: found.place,
       reasons: found.reasons,
       stayMinutes: defaultStay(found.place.category),
+      fixedArrive: null,
       memo: null,
       courseOrder: null,
       origin: 'added',
@@ -181,25 +220,27 @@ export default function CoursePage() {
   }
 
   function setStay(index: number, minutes: number) {
-    updateSteps((list) => list.map((s, i) => (i === index ? { ...s, stayMinutes: minutes } : s)))
+    if (!Number.isFinite(minutes)) return
+    const m = Math.min(STAY_MAX, Math.max(1, Math.round(minutes)))
+    updateSteps((list) => list.map((s, i) => (i === index ? { ...s, stayMinutes: m } : s)))
+  }
+
+  /** 도착 시간 고정 (예약 등). 출발 시간보다 이르면 다음날로 본다. null 이면 앞 일정에 이어서 */
+  function setArrive(index: number, value: string | null) {
+    if (!plan) return
+    let fixed: number | null = null
+    if (value) {
+      fixed = toMinutes(value)
+      if (fixed < toMinutes(plan.start)) fixed += 1440
+    }
+    updateSteps((list) => list.map((s, i) => (i === index ? { ...s, fixedArrive: fixed } : s)))
   }
 
   function reset() {
     if (!course || !plan) return
-    // 날짜·출발 시간은 그대로 두고 장소·순서·머무는 시간만 되돌린다
+    // 날짜·출발 시간은 그대로 두고 장소·순서·머무는 시간·고정 시간만 되돌린다
     update({ ...initialPlan(course), date: plan.date, start: plan.start })
     setPicker(null)
-  }
-
-  function downloadIcs() {
-    if (!course || !plan) return
-    const blob = new Blob([toIcs(course.title, plan, steps, roleLabel)], { type: 'text/calendar;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${course.title}.ics`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   if (error) {
@@ -320,19 +361,28 @@ export default function CoursePage() {
         </label>
         <label>
           <span>출발</span>
-          <input type="time" value={plan.start} step={300} onChange={(e) => e.target.value && update({ ...plan, start: e.target.value })} />
+          <input type="time" value={plan.start} step={60} onChange={(e) => e.target.value && update({ ...plan, start: e.target.value })} />
         </label>
         <p className="schedule-end">
           끝 <strong>{clockText(end)}</strong>
         </p>
-        <button type="button" className="secondary small-button" onClick={downloadIcs}>
-          📅 캘린더에 저장
+        <button type="button" className="primary save-button" onClick={save} disabled={saving || (!!saved && !unsaved)}>
+          {saving ? '저장 중…' : saved && !unsaved ? '✓ 저장됨' : '💾 저장'}
         </button>
+        <p className="save-state muted small">
+          {saveError
+            ? <span className="notice">{saveError}</span>
+            : saved
+              ? unsaved
+                ? '저장한 뒤 고친 내용이 있어요.'
+                : `${savedLabel(saved.at)}에 저장했어요. 다음에 와도 그대로예요.`
+              : '저장하면 이 브라우저로 다음에 와도 그대로 볼 수 있어요. (로그인 없음)'}
+        </p>
       </div>
 
       {changed && (
         <p className="notice-soft">
-          내가 바꾼 코스예요. 바꾼 내용은 이 브라우저에만 저장돼요.{' '}
+          원래 코스에서 바꾼 일정이에요.{' '}
           <button type="button" className="link-button" onClick={reset}>
             원래 코스로
           </button>
@@ -349,20 +399,38 @@ export default function CoursePage() {
                 {i + 1}
               </button>
               <div className="step-body">
-                <p className="step-time">
-                  <strong>
-                    {clockText(s.arrive)} – {clockText(s.depart)}
-                  </strong>
-                  <select value={s.stayMinutes} onChange={(e) => setStay(i, Number(e.target.value))} aria-label={`${s.place.name}에 머무는 시간`}>
-                    {[...new Set([...STAY_CHOICES, s.stayMinutes])]
-                      .sort((a, b) => a - b)
-                      .map((m) => (
-                        <option key={m} value={m}>
-                          {formatMinutes(m)} 머물기
-                        </option>
-                      ))}
-                  </select>
-                </p>
+                <div className="step-time">
+                  <label className={s.fixedArrive != null ? 'fixed' : undefined}>
+                    <span>도착</span>
+                    <input
+                      type="time"
+                      step={60}
+                      value={timeValue(s.arrive)}
+                      onChange={(e) => setArrive(i, e.target.value || null)}
+                      aria-label={`${s.place.name} 도착 시간`}
+                    />
+                  </label>
+                  <label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={STAY_MAX}
+                      value={s.stayMinutes}
+                      onChange={(e) => setStay(i, e.target.valueAsNumber)}
+                      aria-label={`${s.place.name}에 머무는 시간(분)`}
+                    />
+                    <span>분 머물기</span>
+                  </label>
+                  <span className="depart">→ {clockText(s.depart)} 출발</span>
+                  {s.fixedArrive != null && (
+                    <button type="button" className="link-button" onClick={() => setArrive(i, null)}>
+                      도착 고정 풀기
+                    </button>
+                  )}
+                </div>
+                {s.late && (
+                  <p className="notice small">앞 일정이 늦게 끝나 {clockText(s.fixedArrive ?? 0)}보다 늦게 도착해요.</p>
+                )}
                 <p className="step-role muted">
                   {roleLabel(s.role)} · {CATEGORY_LABEL[s.place.category] ?? s.place.category}
                 </p>
@@ -419,7 +487,7 @@ export default function CoursePage() {
         ))}
       </ol>
       <p className="muted small">
-        장소는 리뷰·별점 없이 공공데이터(업종·지정 정보·출처)로 골랐어요. 걷는 시간은 직선 거리로 어림한 값이고, 영업 여부와 시간은
+        도착 시간을 직접 고치면 그 시간으로 고정돼요(예약 등). 장소는 리뷰·별점 없이 공공데이터(업종·지정 정보·출처)로 골랐어요. 걷는 시간은 직선 거리로 어림한 값이고, 영업 여부와 시간은
         네이버지도에서 꼭 확인해 주세요.
       </p>
     </section>

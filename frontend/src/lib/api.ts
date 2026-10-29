@@ -8,5 +8,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => null)
     throw new Error(body?.message ?? '잠시 후 다시 시도해 주세요.')
   }
+  if (res.status === 204) {
+    return undefined as T
+  }
   return res.json() as Promise<T>
 }

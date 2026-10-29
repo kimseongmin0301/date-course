@@ -110,3 +110,36 @@ export interface AlternativeResponse {
   reasons: string[]
   distanceMeters: number
 }
+
+/** 서버에 저장한 내 일정의 단계 */
+export interface PlanStepResponse {
+  role: StepRole | 'mine'
+  stayMinutes: number
+  fixedArrive: number | null
+  origin: 'course' | 'swap' | 'added'
+  courseOrder: number | null
+  place: Place
+  reasons: string[]
+}
+
+export interface PlanResponse {
+  courseId: number
+  title: string
+  date: string | null
+  start: string
+  savedAt: string
+  steps: PlanStepResponse[]
+}
+
+/** 내 저장 목록의 일정 하나 */
+export interface PlanSummary {
+  courseId: number
+  title: string
+  sido: string
+  sigungu: string | null
+  date: string | null
+  start: string
+  end: string
+  stepNames: string[]
+  savedAt: string
+}

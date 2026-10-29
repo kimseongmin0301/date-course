@@ -128,7 +128,7 @@ public class CourseQueryService {
         return reasons(s.badge(), s.tour(), s.sbiz(), s.franchise(), s.category());
     }
 
-    static List<String> reasons(boolean badge, boolean tour, boolean sbiz, boolean franchise, String category) {
+    public static List<String> reasons(boolean badge, boolean tour, boolean sbiz, boolean franchise, String category) {
         List<String> reasons = new ArrayList<>();
         if (badge) {
             reasons.add("모범음식점");
@@ -239,7 +239,7 @@ public class CourseQueryService {
                 p.detailCategory(), p.lat(), p.lng(), p.sido(), p.sigungu(), Set.of(), false, false, false);
     }
 
-    private static PlaceResponse toPlace(CourseQueryRepository.Candidate c) {
+    public static PlaceResponse toPlace(CourseQueryRepository.Candidate c) {
         return new PlaceResponse(c.id(), c.name(), c.branch(), c.category(), c.detailCategory(), c.lat(), c.lng(),
                 c.sido(), c.sigungu(), c.roadAddress(), c.lotAddress(), c.phone(), c.imageUrl(), c.description(),
                 naverMapUrl(c.name(), c.branch(), c.sigungu()));

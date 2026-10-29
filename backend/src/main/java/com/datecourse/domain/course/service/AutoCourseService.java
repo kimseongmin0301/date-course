@@ -24,7 +24,7 @@ import com.datecourse.domain.place.service.FranchiseNames;
 /**
  * 자동 코스를 전국에서 다시 만든다 (CoursePlanner). 시도마다 장소를 메모리에 올려 조합하고, 시도 하나를 한 트랜잭션으로 쓴다.
  * 중심 장소마다 자동 코스는 하나라서, 이미 있으면 같은 id 로 고쳐 쓴다 (반응·저장이 이어지게).
- * 이번에 못 만든 예전 자동 코스는 반응이 없으면 지우고, 있으면 숨긴다.
+ * 이번에 못 만든 예전 자동 코스는 반응·저장한 일정이 없으면 지우고, 있으면 숨긴다 (저장한 사람의 일정이 사라지지 않게).
  * 시도 경계 너머의 카페·식당은 보지 않는다 (경계 바로 옆 명소는 후보가 조금 적다).
  *
  * 목적지 카페 코스: 관광공사가 소개하고 체인이 아닌 카페 중 명소 코스에 안 들어간 곳은 그 카페를 중심으로
@@ -192,7 +192,8 @@ public class AutoCourseService {
         String idList = made.stream().map(String::valueOf).collect(Collectors.joining(","));
         int deleted = jdbc.update("""
                 DELETE FROM course c WHERE c.kind = 'auto' AND c.id <> ALL (string_to_array(?, ',')::bigint[])
-                  AND NOT EXISTS (SELECT 1 FROM reaction r WHERE r.course_id = c.id)""", idList);
+                  AND NOT EXISTS (SELECT 1 FROM reaction r WHERE r.course_id = c.id)
+                AND NOT EXISTS (SELECT 1 FROM saved_plan sp WHERE sp.course_id = c.id)""", idList);
         int hidden = jdbc.update("""
                 UPDATE course SET hidden = true, updated_at = now()
                 WHERE kind = 'auto' AND NOT hidden AND id <> ALL (string_to_array(?, ',')::bigint[])""", idList);

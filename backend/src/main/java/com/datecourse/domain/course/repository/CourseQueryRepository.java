@@ -147,6 +147,28 @@ public class CourseQueryRepository {
                             boolean tour, boolean sbiz, boolean badge, boolean franchise) {
     }
 
+    /** id 로 장소들 (저장한 일정을 다시 보여줄 때). 문 닫은 곳도 돌려준다 (화면에서 알리게) */
+    public List<Candidate> placesByIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                SELECT p.id, p.name, p.branch, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
+                       p.road_address, p.lot_address, p.phone, p.image_url, p.description, NULL AS codes,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'sbiz') AS sbiz,
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge
+                FROM place p WHERE p.id IN (:ids)""")
+                .param("ids", ids)
+                .query((rs, n) -> new Candidate(rs.getLong("id"), rs.getString("name"), rs.getString("branch"), rs.getString("normalized_name"),
+                        rs.getString("category"), rs.getString("detail_category"), rs.getDouble("lat"), rs.getDouble("lng"),
+                        rs.getString("sido"), rs.getString("sigungu"), rs.getString("road_address"), rs.getString("lot_address"),
+                        rs.getString("phone"), rs.getString("image_url"), rs.getString("description"), Set.of(),
+                        rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"),
+                        franchises.isFranchise(rs.getString("normalized_name"))))
+                .list();
+    }
+
     /** (lat, lng) 에서 meters 안의 categories 장소 (거리 계산 전 사각형으로 거름) */
     public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories) {
         return candidates(lat, lng, meters, categories, null);
