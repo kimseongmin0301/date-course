@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.datecourse.domain.course.dto.AlternativeResponse;
 import com.datecourse.domain.course.dto.CourseDetailResponse;
 import com.datecourse.domain.course.dto.CourseSearchResponse;
 import com.datecourse.domain.course.service.CourseQueryService;
@@ -28,6 +29,12 @@ public class CourseController {
                                        @RequestParam(name = "kw", required = false) List<String> keywords,
                                        @RequestParam(required = false) Integer page) {
         return courseQueryService.search(courseQueryService.normalize(lat, lng, radius, keywords, page));
+    }
+
+    /** 코스 order 번째 단계의 근처 대안 (같은 역할, 좋은 순 5곳). 없는 코스·단계는 404 */
+    @GetMapping("/api/courses/{id}/steps/{order}/alternatives")
+    public List<AlternativeResponse> alternatives(@PathVariable long id, @PathVariable int order) {
+        return courseQueryService.alternatives(id, order);
     }
 
     /** 코스 상세 (단계별 장소). 없거나 숨긴 코스는 404 */

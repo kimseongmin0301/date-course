@@ -6,7 +6,7 @@ import LocationSearch from '../components/LocationSearch'
 import { api } from '../lib/api'
 import { formatDistance, formatMinutes, parseKeywords, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
-import { dimIcon, distanceMeters, rankIcon, stepIcon, visibleRadius, zoomForRadius } from '../lib/naverMap'
+import { distanceMeters, jumpTo, rankIcon, stepIcon, visibleRadius, zoomForRadius } from '../lib/naverMap'
 import type { CourseCard, CourseSearchResponse, LocationResult } from '../lib/types'
 import { useMap } from '../map/context'
 
@@ -132,9 +132,9 @@ export default function SearchPage() {
       const marker = new naver.maps.Marker({
         map,
         position: new naver.maps.LatLng(c.centerLat, c.centerLng),
-        icon: chosen ? dimIcon() : rankIcon(i + 1),
+        icon: rankIcon(i + 1, !!chosen),
         title: c.title,
-        zIndex: chosen ? 1 : 100 - i,
+        zIndex: chosen ? 50 - i : 100 - i,
       })
       listeners.push(naver.maps.Event.addListener(marker, 'click', () => setSelected(c.id)))
       overlays.push(marker)
@@ -180,6 +180,17 @@ export default function SearchPage() {
     const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(Math.max(1500, l.radius)) })
     if (keywords.length) next.set('kw', keywords.join(','))
     navigate(`/search?${next}`)
+  }
+
+  const chosenIndex = courses.findIndex((c) => c.id === selected)
+
+  // 고른 코스를 풀고 검색한 넓이로 돌아가 모든 순위 핀을 본다
+  function showAll() {
+    setSelected(null)
+    if (map) {
+      programmatic.current = true
+      jumpTo(map, lat, lng, zoomForRadius(radius))
+    }
   }
 
   function searchHere() {
@@ -262,12 +273,33 @@ export default function SearchPage() {
         </button>
       )}
 
-      {overlay && moved && createPortal(
-        <button type="button" className="map-button" onClick={searchHere}>
-          ↻ 이 지역에서 다시 찾기
-        </button>,
-        overlay,
-      )}
+      {overlay &&
+        createPortal(
+          <>
+            {moved && (
+              <button type="button" className="map-button" onClick={searchHere}>
+                ↻ 이 지역에서 다시 찾기
+              </button>
+            )}
+            {chosenIndex >= 0 && (
+              <div className="course-nav" role="group" aria-label="코스 넘겨 보기">
+                <button type="button" disabled={chosenIndex === 0} onClick={() => setSelected(courses[chosenIndex - 1].id)} aria-label="이전 코스">
+                  ◀
+                </button>
+                <span className="nav-rank">
+                  {chosenIndex + 1}위 <span className="muted small">/ {total}</span>
+                </span>
+                <button type="button" disabled={chosenIndex === courses.length - 1} onClick={() => setSelected(courses[chosenIndex + 1].id)} aria-label="다음 코스">
+                  ▶
+                </button>
+                <button type="button" className="nav-all" onClick={showAll}>
+                  전체 보기
+                </button>
+              </div>
+            )}
+          </>,
+          overlay,
+        )}
     </section>
   )
 }

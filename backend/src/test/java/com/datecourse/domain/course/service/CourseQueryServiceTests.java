@@ -132,4 +132,41 @@ class CourseQueryServiceTests {
         assertThat(CourseQueryService.reasons(museum)).containsExactly("관광공사·상가정보 모두 확인");
         assertThat(CourseQueryService.reasons(chain)).isEmpty();
     }
+
+    static CourseQueryRepository.Candidate cand(long id, String name, String category, String detail, double north,
+                                                boolean badge, boolean franchise) {
+        return new CourseQueryRepository.Candidate(id, name, null, name, category, detail, 37.5 + north / 111_320, 127.0,
+                "서울특별시", "종로구", null, null, null, null, null, java.util.Set.of(), false, true, badge, franchise);
+    }
+
+    @Test
+    void 근처_대안은_같은_역할에서_좋은_순으로_코스에_든_곳은_빼고() {
+        CourseQueryRepository.StepPlace meal = new CourseQueryRepository.StepPlace(7, 2, "meal", 70, 4, null, 12, "원래식당", null,
+                "restaurant", "백반/한정식", 37.5, 127.0, "서울특별시", "종로구", null, null, null, null, null, false, true, false, false);
+        given(repository.detail(7)).willReturn(java.util.Optional.of(new CourseQueryRepository.Detail(7, "코스", "a → b", "auto",
+                "서울특별시", "종로구", 37.5, 127.0, 200, null, null)));
+        given(repository.steps(List.of(7L))).willReturn(Map.of(7L, List.of(meal)));
+        given(repository.keywords(List.of(7L))).willReturn(Map.of(7L, List.of("romantic")));
+        given(repository.candidates(eq(37.5), eq(127.0), anyDouble(), eq(List.of("restaurant")))).willReturn(List.of(
+                cand(12, "원래식당", "restaurant", "백반/한정식", 0, false, false),      // 코스에 든 곳
+                cand(13, "체인식당", "restaurant", "백반/한정식", 50, false, true),
+                cand(14, "모범식당", "restaurant", "백반/한정식", 300, true, false),
+                cand(15, "파스타집", "restaurant", "파스타/스테이크", 200, false, false),
+                cand(16, "먼식당", "restaurant", "백반/한정식", 900, false, false)));  // 600m 밖
+
+        List<com.datecourse.domain.course.dto.AlternativeResponse> alts = service.alternatives(7, 2);
+
+        assertThat(alts).extracting(a -> a.place().name()).containsExactly("파스타집", "모범식당", "체인식당");
+        assertThat(alts.get(1).reasons()).contains("모범음식점");
+        assertThat(alts.get(0).distanceMeters()).isEqualTo(200);
+    }
+
+    @Test
+    void 없는_단계의_대안은_404() {
+        given(repository.detail(7)).willReturn(java.util.Optional.of(new CourseQueryRepository.Detail(7, "코스", "a", "auto",
+                "서울특별시", "종로구", 37.5, 127.0, 200, null, null)));
+        given(repository.steps(List.of(7L))).willReturn(Map.of());
+        given(repository.keywords(List.of(7L))).willReturn(Map.of());
+        assertThatThrownBy(() -> service.alternatives(7, 9)).isInstanceOf(CourseException.class);
+    }
 }

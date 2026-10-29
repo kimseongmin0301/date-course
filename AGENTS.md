@@ -185,6 +185,7 @@ cd backend
 | GET | `/api/keywords` | 키워드 칩 `[{ code, name, kind }]` (분위기 → 활동 → 실내외 → 예산) |
 | GET | `/api/courses?lat=&lng=&radius=&kw=&page=` | 코스 순위 목록. 지도 가운데에서 `radius`(m, 기본 3000, 500~20000) 안의 코스 가운데, `kw` 0~3개(`kw=quiet,cozy` 또는 `kw=quiet&kw=cozy`), `page` 0~9(한 쪽 20개) → `{ total, page, size, courses: [{ id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distanceMeters, keywords, matchedKeywords, steps: [{ order, role, stayMinutes, walkMinutes, placeId, name, branch, category, lat, lng }] }] }`. 국외 좌표·반경·모르는 키워드·4개 이상은 400 |
 | GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `station` 역(지하철역 좌표가 데이터에 없어서 이름·지점명에 "반석역"이 든 가게 2곳 이상의 평균 좌표, 시군구마다 하나, 실제 역과 약 100m), `area` 시군구·행정동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등)과 법정동(지번 주소의 동: "반석동"은 행정동으로 노은3동이라), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때. 역·가게 이름은 못 찾음). "대전 반석역"처럼 앞에 시도를 쓰면 그 시도 안에서만(같은 이름이 여러 도시에 있어서). `radius` 는 지도에 보여줄 반경 제안 |
+| GET | `/api/courses/{id}/steps/{order}/alternatives` | 그 단계의 근처 대안(같은 역할: 구경·카페·식당, 원래 장소에서 600m 안) 좋은 순 5곳 `[{ place, reasons, distanceMeters }]`. 코스 만들 때와 같은 점수(`CoursePlanner.alternativeScore`), 코스에 든 곳·같은 가게는 뺌. 1시간 캐시(`courses:{id}:alt:{order}`). 없는 코스·단계 404 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
 
 ### 순위
@@ -200,7 +201,9 @@ cd backend
 - 네이버 지도는 지도 칸에 `position: relative` 를 넣으므로 `.map` 은 `inset` 대신 `width/height: 100%` 로 채웁니다(처음에 높이 0 이 돼 지도가 안 보였음).
 - 지역은 검색창(`LocationSearch` → `GET /api/locations`, 엔터·찾기를 누를 때만 부름: **첫 결과로 바로 지도를 옮기고 파란 핀**, 나머지는 "다른 곳이었나요?"에서 바꿔 고름), 지도 옮기기, 인기 지역 바로가기(`lib/areas.ts`), 내 주변(브라우저 위치)으로 고릅니다. 검색 화면에서 다른 지역을 고르면 바로 그곳에서 다시 찾습니다. 검색 반경은 지금 지도 화면을 덮는 반경(`visibleRadius`, 500m~20km)입니다.
 - 검색 화면: 순위 핀(코스 가운데) → 카드나 핀을 누르면 그 코스의 단계 핀과 동선(점선)을 그리고 지도를 맞춥니다.
-- **핀은 모양부터 다르게**(`lib/naverMap.ts`): 순위는 분홍 물방울 마커+숫자(`rankIcon`), 코스를 고른 동안 다른 코스는 숫자 없는 회색 점(`dimIcon`), 단계는 어두운 이름표 "① 카페"(`stepIcon`, 순서+역할), 검색 위치는 파란 점(`targetIcon`). 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
+- **핀은 모양부터 다르게**(`lib/naverMap.ts`): 순위는 분홍 물방울 마커+숫자(`rankIcon`), 코스를 고른 동안 다른 코스는 작고 연한 물방울+숫자(`rankIcon(n, true)`, 눌러서 바로 바꿈), 단계는 어두운 이름표 "① 카페"(`stepIcon`, 순서+역할), 근처 대안은 흰 바탕 글자 A~E(`altIcon`), 검색 위치는 파란 점(`targetIcon`).
+- 코스를 고르면 지도 위에 "◀ 2위 / 7 ▶ · 전체 보기"(`.course-nav`): 목록을 내리지 않고 코스를 넘겨 보고, 전체 보기는 고른 것을 풀고 검색한 넓이로 돌아갑니다.
+- **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 **이 브라우저에만**(`localStorage` `course-swaps:{코스id}`, `lib/storage.ts`) 저장하고 "원래 장소로"·"원래 코스로"로 되돌립니다. 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로.
 
 ## 8. 코드 스타일
@@ -252,7 +255,8 @@ cd backend
 - [x] 순위 점수(매일 04:30), 코스 검색·상세 API (Redis 캐시)
 - [ ] 반응(저장·좋아요·다녀왔어요) API, 관리자 큐레이션
 - [x] 화면: 지도(하나만), 인기 지역·내 주변, 키워드, 코스 순위 목록·핀·동선, 코스 상세
-- [ ] 화면: 근처 대안 바꿔 끼우기, 저장·반응, 내 저장
+- [x] 화면: 근처 대안 보기·바꾸기(브라우저에 저장), 코스 넘겨 보기(◀ ▶ 전체 보기)
+- [ ] 화면: 저장·반응, 내 저장
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
 - [x] 지역 검색: 동네·명소(우리 데이터), 주소(네이버 Geocoding), 검색하면 바로 그 위치로

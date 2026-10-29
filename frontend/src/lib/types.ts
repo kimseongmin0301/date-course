@@ -103,3 +103,10 @@ export interface LocationResult {
   /** 지도에 보여줄 반경(m) 제안 */
   radius: number
 }
+
+/** 코스 단계의 근처 대안. distanceMeters: 원래 단계 장소에서의 직선 거리 */
+export interface AlternativeResponse {
+  place: Place
+  reasons: string[]
+  distanceMeters: number
+}

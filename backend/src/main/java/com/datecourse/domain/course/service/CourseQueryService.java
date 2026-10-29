@@ -4,14 +4,18 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.datecourse.domain.collector.util.Geo;
+import com.datecourse.domain.collector.util.PlaceNames;
+import com.datecourse.domain.course.dto.AlternativeResponse;
 import com.datecourse.domain.course.dto.CourseCard;
 import com.datecourse.domain.course.dto.CourseDetailResponse;
 import com.datecourse.domain.course.dto.CourseSearchRequest;
@@ -19,7 +23,10 @@ import com.datecourse.domain.course.dto.CourseSearchResponse;
 import com.datecourse.domain.course.dto.PlaceResponse;
 import com.datecourse.domain.course.dto.StepDetail;
 import com.datecourse.domain.course.exception.CourseException;
+import com.datecourse.domain.course.entity.StepRole;
 import com.datecourse.domain.course.repository.CourseQueryRepository;
+import com.datecourse.domain.course.util.CoursePlanner;
+import com.datecourse.domain.place.entity.PlaceCategory;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
 import com.datecourse.domain.keyword.service.KeywordService;
 import com.datecourse.global.cache.JsonCache;
@@ -118,19 +125,84 @@ public class CourseQueryService {
 
     /** 이 장소를 고른 이유 (화면에 작은 표시로). 리뷰·별점이 없으므로 우리가 아는 사실만 쓴다 */
     static List<String> reasons(CourseQueryRepository.StepPlace s) {
+        return reasons(s.badge(), s.tour(), s.sbiz(), s.franchise(), s.category());
+    }
+
+    static List<String> reasons(boolean badge, boolean tour, boolean sbiz, boolean franchise, String category) {
         List<String> reasons = new ArrayList<>();
-        if (s.badge()) {
+        if (badge) {
             reasons.add("모범음식점");
         }
-        if (s.tour() && s.sbiz()) {
+        if (tour && sbiz) {
             reasons.add("관광공사·상가정보 모두 확인");
-        } else if (s.tour()) {
+        } else if (tour) {
             reasons.add("관광공사 소개");
         }
-        if (!s.franchise() && LOCAL_SHOP.contains(s.category())) {
+        if (!franchise && LOCAL_SHOP.contains(category)) {
             reasons.add("체인 아닌 동네 가게");
         }
         return reasons;
+    }
+
+    /** 근처 대안: 원래 장소에서 이만큼 안 (걸어서 약 10분) */
+    static final double ALTERNATIVE_RADIUS_M = 600;
+    public static final int ALTERNATIVES_MAX = 5;
+
+    /**
+     * 코스 order 번째 단계의 근처 대안 (같은 역할: 구경·카페·식당), 코스 만들 때와 같은 점수로 좋은 순 5곳.
+     * 이미 코스에 든 곳(같은 가게 포함)은 뺀다. 결과는 1시간 캐시
+     */
+    public List<AlternativeResponse> alternatives(long courseId, int order) {
+        return cache.getOrLoad("courses:" + courseId + ":alt:" + order, DETAIL_TTL,
+                new TypeReference<List<AlternativeResponse>>() { }, () -> {
+                    CourseDetailResponse course = detail(courseId);
+                    StepDetail step = course.steps().stream().filter(s -> s.order() == order).findFirst()
+                            .orElseThrow(CourseException::notFound);
+                    StepRole role = StepRole.valueOf(step.role().toUpperCase());
+                    PlaceResponse origin = step.place();
+                    List<CoursePlanner.Spot> inCourse = course.steps().stream().map(s -> toSpot(s.place())).toList();
+                    Set<String> courseKeywords = Set.copyOf(course.keywords());
+                    return repository.candidates(origin.lat(), origin.lng(), ALTERNATIVE_RADIUS_M, ROLE_CATEGORIES.get(role)).stream()
+                            .map(c -> {
+                                CoursePlanner.Spot spot = toSpot(c);
+                                double meters = Geo.distanceMeters(origin.lat(), origin.lng(), c.lat(), c.lng());
+                                boolean ok = meters <= ALTERNATIVE_RADIUS_M && CoursePlanner.fitsRole(spot, role)
+                                        && !CoursePlanner.sameAsAny(spot, inCourse);
+                                return ok ? new Scored(c, meters, CoursePlanner.alternativeScore(spot, role, meters, courseKeywords)) : null;
+                            })
+                            .filter(Objects::nonNull)
+                            .sorted(Comparator.comparingDouble((Scored x) -> -x.score()).thenComparingLong(x -> x.c().id()))
+                            .limit(ALTERNATIVES_MAX)
+                            .map(x -> new AlternativeResponse(toPlace(x.c()),
+                                    reasons(x.c().badge(), x.c().tour(), x.c().sbiz(), x.c().franchise(), x.c().category()),
+                                    (int) Math.round(x.meters())))
+                            .toList();
+                });
+    }
+
+    private record Scored(CourseQueryRepository.Candidate c, double meters, double score) {
+    }
+
+    private static final Map<StepRole, List<String>> ROLE_CATEGORIES = Map.of(
+            StepRole.SPOT, List.of("attraction", "culture", "shop", "activity"),
+            StepRole.CAFE, List.of("cafe"),
+            StepRole.MEAL, List.of("restaurant"));
+
+    private static CoursePlanner.Spot toSpot(CourseQueryRepository.Candidate c) {
+        return new CoursePlanner.Spot(c.id(), c.name(), c.normalizedName(), PlaceCategory.valueOf(c.category().toUpperCase()),
+                c.detailCategory(), c.lat(), c.lng(), c.sido(), c.sigungu(), c.keywords(), c.tour(), c.franchise(), c.badge());
+    }
+
+    /** 코스에 든 장소 (같은 가게 비교용이라 이름·위치만) */
+    private static CoursePlanner.Spot toSpot(PlaceResponse p) {
+        return new CoursePlanner.Spot(p.id(), p.name(), PlaceNames.normalize(p.name()), PlaceCategory.valueOf(p.category().toUpperCase()),
+                p.detailCategory(), p.lat(), p.lng(), p.sido(), p.sigungu(), Set.of(), false, false, false);
+    }
+
+    private static PlaceResponse toPlace(CourseQueryRepository.Candidate c) {
+        return new PlaceResponse(c.id(), c.name(), c.branch(), c.category(), c.detailCategory(), c.lat(), c.lng(),
+                c.sido(), c.sigungu(), c.roadAddress(), c.lotAddress(), c.phone(), c.imageUrl(), c.description(),
+                naverMapUrl(c.name(), c.branch(), c.sigungu()));
     }
 
     private static final Set<String> LOCAL_SHOP = Set.of("cafe", "restaurant", "shop", "bar");

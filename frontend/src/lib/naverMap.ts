@@ -30,19 +30,14 @@ export function loadNaverMaps(): Promise<typeof naver.maps> {
 
 // 지도 핀 세 가지는 모양부터 다르게 한다 (순위 "2"와 단계 "2"를 헷갈린다는 의견이 있었음)
 
-/** 코스 순위: 분홍 물방울 마커 + 순위 숫자 (끝이 코스 위치를 가리킴) */
-export function rankIcon(rank: number): naver.maps.HtmlIcon {
+/**
+ * 코스 순위: 분홍 물방울 마커 + 순위 숫자 (끝이 코스 위치를 가리킴).
+ * faded: 다른 코스를 고른 동안 — 작고 연하게, 숫자는 남겨 눌러서 바로 바꿀 수 있게
+ */
+export function rankIcon(rank: number, faded = false): naver.maps.HtmlIcon {
   return {
-    content: `<div class="pin-rank"><span>${rank}</span></div>`,
-    anchor: new naver.maps.Point(15, 36),
-  }
-}
-
-/** 다른 코스를 고른 동안의 순위 핀: 숫자 없는 작은 회색 점 */
-export function dimIcon(): naver.maps.HtmlIcon {
-  return {
-    content: '<div class="pin-dim"></div>',
-    anchor: new naver.maps.Point(7, 7),
+    content: `<div class="pin-rank${faded ? ' faded' : ''}"><span>${rank}</span></div>`,
+    anchor: faded ? new naver.maps.Point(11, 27) : new naver.maps.Point(15, 36),
   }
 }
 
@@ -93,4 +88,17 @@ export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: n
 export function jumpTo(map: naver.maps.Map, lat: number, lng: number, zoom: number) {
   map.setZoom(zoom, false)
   map.setCenter(new naver.maps.LatLng(lat, lng))
+}
+
+/** 근처 대안: 흰 바탕에 글자(A~E), 분홍 테두리 */
+export function altIcon(letter: string): naver.maps.HtmlIcon {
+  return {
+    content: `<div class="pin-alt">${letter}</div>`,
+    anchor: new naver.maps.Point(13, 13),
+  }
+}
+
+/** 걸어서 걸리는 시간(분): 직선 거리에 길 굽음 1.3배, 분속 67m (서버 CoursePlanner.walkMinutes 와 같은 식) */
+export function walkMinutes(meters: number): number {
+  return Math.max(1, Math.round((meters * 1.3) / 67))
 }

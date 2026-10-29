@@ -199,6 +199,35 @@ public final class CoursePlanner {
                 .max(Comparator.comparingDouble(GridPick::score).thenComparing(p -> -p.spot().id()));
     }
 
+    /** 근처 대안: 이 역할(구경·카페·식당)에 넣을 수 있는 곳인가 (코스 만들 때와 같은 기준) */
+    public static boolean fitsRole(Spot s, StepRole role) {
+        return switch (role) {
+            case SPOT -> isAnchor(s) || isSecondSpot(s);
+            case CAFE -> s.category() == PlaceCategory.CAFE;
+            case MEAL -> s.category() == PlaceCategory.RESTAURANT;
+        };
+    }
+
+    /**
+     * 근처 대안 점수: 코스 만들 때와 같은 기준 (분위기 일치·TourAPI·지정 업체·체인·거리·업종).
+     * meters 는 원래 단계 장소에서의 거리, courseKeywords 는 코스 키워드 (그중 분위기만 본다)
+     */
+    public static double alternativeScore(Spot s, StepRole role, double meters, Set<String> courseKeywords) {
+        Set<String> taste = new LinkedHashSet<>(courseKeywords);
+        taste.retainAll(MOOD);
+        int bonus = switch (role) {
+            case SPOT -> spotBonus(s);
+            case CAFE -> cafeBonus(s);
+            case MEAL -> MEAL_BONUS.getOrDefault(s.detail(), 0);
+        };
+        return score(s, meters, taste) + bonus;
+    }
+
+    /** 이미 코스에 든 곳과 같은 장소인가 (근처 대안에서 뺄 때) */
+    public static boolean sameAsAny(Spot s, List<Spot> taken) {
+        return alreadyTaken(s, taken);
+    }
+
     /** 같은 장소로 보는 거리: 출처마다 이름이 달라 따로 들어간 같은 가게 ("곽암" 식당 = "곽암아트카페갤러리") */
     static final double SAME_PLACE_M = 50;
 

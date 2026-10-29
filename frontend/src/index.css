@@ -111,6 +111,46 @@ button:disabled {
   left: 50%;
   transform: translateX(-50%);
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 코스를 고른 동안 지도 위: ◀ 2위 / 7 ▶ · 전체 보기 */
+.course-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.2);
+  white-space: nowrap;
+}
+
+.course-nav button {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.course-nav button:not(:disabled):hover {
+  background: var(--surface);
+}
+
+.course-nav .nav-rank {
+  padding: 0 4px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.course-nav .nav-all {
+  background: var(--accent);
+  color: #fff;
 }
 
 .map-error {
@@ -181,14 +221,17 @@ button:disabled {
   color: #fff;
 }
 
-/* 다른 코스를 고른 동안의 순위: 작은 회색 점 */
-.pin-dim {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #9a9aa3;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+/* 다른 코스를 고른 동안의 순위: 작고 연한 물방울 (숫자는 남김) */
+.pin-rank.faded {
+  width: 22px;
+  height: 22px;
+  border-width: 1.5px;
+  background: #f2a7b3;
+  opacity: 0.85;
+}
+
+.pin-rank.faded span {
+  font-size: 10px;
 }
 
 /* 코스 단계: 어두운 이름표 "① 카페" */
@@ -602,4 +645,99 @@ button:disabled {
     background: #1d3326;
     color: #7fd3a1;
   }
+}
+
+/* 근처 대안 핀: 흰 바탕 글자 */
+.pin-alt {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #e8546b;
+  color: #e8546b;
+  font: 700 12px/1 system-ui, sans-serif;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+}
+
+/* ── 코스 상세: 근처 대안·바꾸기 ── */
+.step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.alternatives {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.alternative {
+  display: flex;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.alternative:last-child {
+  border-bottom: 0;
+}
+
+.alt-letter {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.alternative h3 {
+  margin: 0 0 2px;
+  font-size: 0.95rem;
+}
+
+.alternative p {
+  margin: 0 0 4px;
+}
+
+.swap-button {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.swapped-tag {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  margin-left: 6px;
+  vertical-align: middle;
 }

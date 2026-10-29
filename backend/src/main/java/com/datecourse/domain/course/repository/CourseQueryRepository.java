@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -138,5 +139,43 @@ public class CourseQueryRepository {
                 .list()
                 .forEach(e -> result.computeIfAbsent(e.getKey(), k -> new ArrayList<>()).add(e.getValue()));
         return result;
+    }
+
+    /** 근처 대안 후보 한 곳 (장소 정보 + 고르는 데 쓰는 표시) */
+    public record Candidate(long id, String name, String branch, String normalizedName, String category, String detailCategory,
+                            double lat, double lng, String sido, String sigungu, String roadAddress, String lotAddress,
+                            String phone, String imageUrl, String description, Set<String> keywords,
+                            boolean tour, boolean sbiz, boolean badge, boolean franchise) {
+    }
+
+    /** (lat, lng) 에서 meters 안의 categories 장소 (거리 계산 전 사각형으로 거름) */
+    public List<Candidate> candidates(double lat, double lng, double meters, List<String> categories) {
+        return jdbc.sql("""
+                SELECT p.id, p.name, p.branch, p.normalized_name, p.category, p.detail_category, p.lat, p.lng, p.sido, p.sigungu,
+                       p.road_address, p.lot_address, p.phone, p.image_url, p.description,
+                       (SELECT string_agg(k.code, ',') FROM place_keyword pk JOIN keyword k ON k.id = pk.keyword_id
+                        WHERE pk.place_id = p.id) AS codes,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'tour') AS tour,
+                       EXISTS (SELECT 1 FROM place_source s WHERE s.place_id = p.id AND s.source = 'sbiz') AS sbiz,
+                       EXISTS (SELECT 1 FROM place_badge b WHERE b.place_id = p.id) AS badge,
+                       (SELECT count(*) FROM place p2 WHERE p2.normalized_name = p.normalized_name AND p2.closed_at IS NULL)
+                           > :franchiseMin AS franchise
+                FROM place p
+                WHERE p.closed_at IS NULL AND p.category IN (:categories)
+                  AND p.lat BETWEEN :latMin AND :latMax AND p.lng BETWEEN :lngMin AND :lngMax""")
+                .param("categories", categories)
+                .param("franchiseMin", CoursePlanner.FRANCHISE_MIN)
+                .param("latMin", lat - Geo.latDelta(meters)).param("latMax", lat + Geo.latDelta(meters))
+                .param("lngMin", lng - Geo.lngDelta(meters, lat)).param("lngMax", lng + Geo.lngDelta(meters, lat))
+                .query((rs, n) -> {
+                    String codes = rs.getString("codes");
+                    return new Candidate(rs.getLong("id"), rs.getString("name"), rs.getString("branch"), rs.getString("normalized_name"),
+                            rs.getString("category"), rs.getString("detail_category"), rs.getDouble("lat"), rs.getDouble("lng"),
+                            rs.getString("sido"), rs.getString("sigungu"), rs.getString("road_address"), rs.getString("lot_address"),
+                            rs.getString("phone"), rs.getString("image_url"), rs.getString("description"),
+                            codes == null ? Set.of() : Set.of(codes.split(",")),
+                            rs.getBoolean("tour"), rs.getBoolean("sbiz"), rs.getBoolean("badge"), rs.getBoolean("franchise"));
+                })
+                .list();
     }
 }
