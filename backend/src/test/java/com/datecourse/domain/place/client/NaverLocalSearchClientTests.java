@@ -20,8 +20,27 @@ class NaverLocalSearchClientTests {
 
     @Test
     void 키가_없으면_부르지_않는다() {
-        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "");
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", tools.jackson.databind.json.JsonMapper.builder().build());
         assertThat(client.configured()).isFalse();
         assertThat(client.search("카페")).isEmpty();
+    }
+
+    @Test
+    void 응답_JSON_을_읽는다() {
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "", "", tools.jackson.databind.json.JsonMapper.builder().build());
+        String body = """
+                {"total":2,"items":[
+                  {"title":"<b>카페</b> 높","category":"카페,디저트>카페","address":"울산광역시 북구 정자동 434-14",
+                   "roadAddress":"울산광역시 북구 정자1길 111","mapx":"1294464045","mapy":"356215371"},
+                  {"title":"좌표 없음","mapx":"","mapy":""}]}""";
+        assertThat(client.parse(body)).containsExactly(new NaverLocalSearchClient.Item("카페 높", "카페,디저트>카페",
+                "울산광역시 북구 정자동 434-14", "울산광역시 북구 정자1길 111", 35.6215371, 129.4464045));
+    }
+
+    @Test
+    void 부르다_실패하면_503() {
+        NaverLocalSearchClient client = new NaverLocalSearchClient("http://localhost:1", "id", "secret", tools.jackson.databind.json.JsonMapper.builder().build());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.search("카페"))
+                .isInstanceOf(com.datecourse.domain.place.exception.PlaceException.class);
     }
 }
