@@ -80,6 +80,18 @@ class AiTests {
     }
 
     @Test
+    void 메뉴는_지역_후보가_아니라_메뉴로_알아듣는다() {
+        QueryRules.Parsed p = QueryRules.parse("안양일번가 햄버거");
+        assertThat(p.food()).isEqualTo("burger");
+        assertThat(p.areaCandidates()).containsExactly("안양일번가");
+        assertThat(QueryRules.parse("성수동 수제버거집").food()).isEqualTo("burger");
+        assertThat(QueryRules.parse("강남 회 먹으러").food()).isEqualTo("sushi");
+        assertThat(QueryRules.parse("회사 근처 데이트").food()).isNull();   // 한 글자 메뉴(회)는 낱말이 같을 때만
+        assertThat(QueryRules.parse("홍대 빵집 투어").food()).isEqualTo("bakery");   // "빵집"은 STOP 이 아니라 메뉴
+        assertThat(QueryRules.parse("조용한 카페").food()).isNull();
+    }
+
+    @Test
     void AI_답은_원래_문장에_있는_지역과_정해진_키워드만_받는다() throws Exception {
         Map<String, com.datecourse.domain.keyword.dto.KeywordResponse> byName = Map.of(
                 "조용", new com.datecourse.domain.keyword.dto.KeywordResponse("quiet", "조용", "mood"),

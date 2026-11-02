@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.datecourse.domain.collector.util.PlaceNames;
 import com.datecourse.domain.collector.util.Regions;
 import com.datecourse.domain.place.client.NaverGeocodeClient;
+import com.datecourse.domain.place.client.NaverLocalSearchClient;
 import com.datecourse.domain.place.dto.AddressResult;
 import com.datecourse.domain.place.dto.LocationResult;
 import com.datecourse.domain.place.exception.PlaceException;
@@ -28,6 +29,7 @@ import tools.jackson.core.type.TypeReference;
  * "대전 반석역"처럼 앞에 시도를 붙이면 그 시도 안에서만 찾는다 (같은 이름의 역·동이 여러 도시에 있어서).
  * Geocoding 은 무료 이용량(월 300만 건)을 넘지 않게 사이트 전체 하루 geocodeDailyLimit 번까지만 부르고,
  * 결과는 검색어마다 Redis 에 하루 둔다.
+ * 그래도 못 찾은 상권·건물 이름("안양일번가", "롯데월드몰")은 네이버 지역 검색으로 그 이름이 든 가게 자리를 쓴다 (searchNamed).
  */
 @Service
 public class LocationSearchService {
@@ -41,14 +43,41 @@ public class LocationSearchService {
     private final LocationSearchRepository repository;
     private final NaverGeocodeClient geocoder;
     private final JsonCache cache;
+    private final NaverPlaceSearchService naver;
     private final int geocodeDailyLimit;
 
-    public LocationSearchService(LocationSearchRepository repository, NaverGeocodeClient geocoder, JsonCache cache,
+    public LocationSearchService(LocationSearchRepository repository, NaverGeocodeClient geocoder, JsonCache cache, NaverPlaceSearchService naver,
                                  @Value("${date-course.naver.geocode-daily-limit:3000}") int geocodeDailyLimit) {
         this.repository = repository;
         this.geocoder = geocoder;
         this.cache = cache;
+        this.naver = naver;
         this.geocodeDailyLimit = geocodeDailyLimit;
+    }
+
+    /**
+     * 상권·건물 이름을 네이버 지역 검색으로 ("안양일번가" → "KFC 안양일번가점" 자리). 가게 이름에 검색어가 들어 있는 첫 곳만 쓴다
+     * (검색어와 상관없는 가게로 지도를 옮기지 않게). 지도에는 그 둘레 800m. 키가 없거나 하루 한도를 넘었으면 빈 목록.
+     * 우리 데이터·주소로 못 찾았을 때만 부른다 (네이버 하루 한도를 가게 찾기·사진 보기와 나눠 씀)
+     */
+    public List<LocationResult> searchNamed(String query) {
+        String q = query == null ? "" : String.join(" ", query.strip().split("\\s+"));
+        Query parsed = parse(q);
+        String term = PlaceNames.normalize(parsed.term());
+        if (term.length() < 2 || q.length() > 40) {
+            return List.of();
+        }
+        try {
+            for (NaverLocalSearchClient.Item item : naver.search(q)) {
+                if (PlaceNames.normalize(item.title()).contains(term)) {
+                    String address = item.roadAddress().isEmpty() ? item.address() : item.roadAddress();
+                    return List.of(new LocationResult("named", parsed.term(), address, item.lat(), item.lng(), 800));
+                }
+            }
+        } catch (PlaceException e) {
+            // 키가 없거나 오늘 한도를 다 씀
+        }
+        return List.of();
     }
 
     /** 앞뒤 공백을 떼고 가운데 공백은 하나로. 2~40자 */
@@ -153,6 +182,9 @@ public class LocationSearchService {
                 result.add(new LocationResult("address", hasRoad ? a.roadAddress() : a.jibunAddress(),
                         hasRoad ? a.jibunAddress() : null, a.lat(), a.lng(), 500));
             }
+        }
+        if (withGeocode && result.isEmpty()) {
+            result.addAll(searchNamed(q));
         }
         // 같은 이름·같은 동네가 여러 방법으로 찾아지면 하나만
         Set<String> seen = new HashSet<>();

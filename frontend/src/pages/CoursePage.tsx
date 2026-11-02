@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import { foodOf } from '../lib/foods'
 import { CATEGORY_LABEL, formatDistance, formatMinutes, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
 import { altIcon, distanceMeters, jumpTo, stepIcon } from '../lib/naverMap'
@@ -83,6 +84,9 @@ const NAVER_API_HUB = 'https://www.ncloud.com/product/applicationService/NAVERAP
 // "저장"하면 서버에 둔다 (쿠키의 방문자 id 로, 다음에 와도 그대로). 저장 전 고친 내용은 브라우저에 임시로 둔다
 export default function CoursePage() {
   const { id = '' } = useParams()
+  /** AI 검색에서 고른 메뉴 (코스 순위에서 ?food=burger 로 넘어옴): 그 메뉴 가게를 넣는 지름길을 보여준다 */
+  const [searchParams] = useSearchParams()
+  const foodInfo = foodOf(searchParams.get('food'))
   const navigate = useNavigate()
   const { map } = useMap()
   const [course, setCourse] = useState<CourseDetail | null>(null)
@@ -213,6 +217,11 @@ export default function CoursePage() {
 
   function searchToAdd(e: FormEvent, index: number, query: string) {
     e.preventDefault()
+    findToAdd(index, query)
+  }
+
+  /** index 자리에 넣을 곳을 query 로 찾는다 (앞 장소 근처의 우리 데이터 → 없으면 네이버) */
+  function findToAdd(index: number, query: string) {
     if (!plan) return
     const q = query.trim()
     if (!q) return
@@ -634,6 +643,24 @@ export default function CoursePage() {
           <button type="button" className="link-button" onClick={reset}>
             원래 코스로
           </button>
+        </p>
+      )}
+
+      {foodInfo && (
+        <p className="notice-soft">
+          🍽 {foodInfo.name} 가게를 넣고 싶나요?{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              // 첫 식당 앞에 (식당이 없으면 맨 뒤에) 넣을 곳을 찾는다. 넣은 뒤 원래 식당은 빼면 된다
+              const meal = plan.steps.findIndex((s) => s.role === 'meal')
+              findToAdd(meal >= 0 ? meal : plan.steps.length, foodInfo.search)
+            }}
+          >
+            근처 {foodInfo.name} 가게 찾기
+          </button>{' '}
+          <span className="muted small">(넣은 뒤 원래 식당은 "빼기"로 뺄 수 있어요)</span>
         </p>
       )}
 

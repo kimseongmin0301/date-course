@@ -9,6 +9,7 @@ const KIND_LABEL: Record<LocationResult['kind'], string> = {
   station: '역',
   place: '명소',
   address: '주소',
+  named: '장소',
 }
 
 /**

@@ -6,6 +6,7 @@ import type { AiParse } from '../components/AiAsk'
  *   - 지점 없이 시도("부산", "전라도")가 있으면 그 시도 전체 (+ 풍경)
  *   - 풍경만 있으면("바다 가고 싶어") 전국
  *   - 아무것도 못 알아들었으면 지금 지도 가운데(here)
+ *   - 메뉴(food)는 어디서든 붙는다 (그 메뉴 가게가 든 코스를 위로)
  * here 가 없고 지점·시도·풍경도 없으면 null
  */
 export function searchUrlOf(q: string, r: AiParse, here: { lat: number; lng: number; radius: number } | null): string | null {
@@ -21,6 +22,7 @@ export function searchUrlOf(q: string, r: AiParse, here: { lat: number; lng: num
     params.set('sido', r.sidos.join(','))
   }
   if (r.scene) params.set('scene', r.scene)
+  if (r.food) params.set('food', r.food)
   if (r.keywords.length) params.set('kw', r.keywords.join(','))
   params.set('q', q)
   return `/search?${params}`

@@ -24,7 +24,7 @@ interface AiRecommend {
  * AI 추천 (실험 기능, RAG): AI 검색 문장(q)에 맞는 코스를 지금 순위·비슷한 코스 후보 안에서만 고른다.
  * 누를 때만 부르고(서버 GPU 를 포트폴리오 챗봇과 나눠 씀), "다시 추천"은 본 코스를 빼고 다시 고른다.
  */
-export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, onShow }: {
+export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, food, onShow }: {
   q: string
   /** 지점 반경 (시도 전체·전국이면 null) */
   lat: number | null
@@ -33,6 +33,7 @@ export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, on
   keywords: string[]
   sido: string[]
   scene: string | null
+  food: string | null
   onShow: (courseId: number) => boolean
 }) {
   const [result, setResult] = useState<AiRecommend | null>(null)
@@ -46,7 +47,7 @@ export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, on
     try {
       const res = await api<AiRecommend>('/ai/recommend', {
         method: 'POST',
-        body: JSON.stringify({ q, lat, lng, radius, kw: keywords, exclude, sido, scene }),
+        body: JSON.stringify({ q, lat, lng, radius, kw: keywords, exclude, sido, scene, food }),
       })
       setResult(res)
       setSeen([...exclude, ...res.picks.map((p) => p.courseId)])

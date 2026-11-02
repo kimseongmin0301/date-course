@@ -37,6 +37,8 @@ export interface CourseCard {
   keywords: string[]
   matchedKeywords: string[]
   steps: StepSummary[]
+  /** 고른 메뉴의 가게가 든 코스인지 (메뉴를 안 골랐으면 null) */
+  foodMatched?: boolean | null
 }
 
 export interface CourseSearchResponse {
@@ -47,6 +49,8 @@ export interface CourseSearchResponse {
   radius: number
   widened: boolean
   courses: CourseCard[]
+  /** 고른 메뉴의 가게가 든 코스 수 (메뉴를 안 골랐으면 null) */
+  foodTotal?: number | null
 }
 
 export interface Place {
@@ -111,7 +115,7 @@ export interface CourseDetail {
 }
 
 export interface LocationResult {
-  kind: 'area' | 'station' | 'place' | 'address'
+  kind: 'area' | 'station' | 'place' | 'address' | 'named'
   name: string
   detail: string | null
   lat: number

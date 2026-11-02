@@ -6,6 +6,7 @@ import AiPicks from '../components/AiPicks'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { searchUrlOf } from '../lib/aiSearch'
+import { foodOf } from '../lib/foods'
 import { api } from '../lib/api'
 import { formatDistance, formatMinutes, parseKeywords, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
@@ -16,6 +17,7 @@ import { useMap } from '../map/context'
 // 검색 결과: 왼쪽 코스 순위 카드, 지도에는 코스 가운데 순위 핀. 카드를 고르면 그 코스 단계와 동선을 그린다
 // 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy (지점 반경)
 //         /search?sido=부산광역시&scene=sea&q=… (AI 검색: 시도 전체), /search?scene=sea (풍경만: 전국)
+//         &food=burger (AI 검색의 메뉴: 그 메뉴 가게가 든 코스를 위로, 없으면 코스에 넣는 방법을 안내)
 const SCENE_LABEL: Record<string, string> = { sea: '바다', mountain: '산·숲', water: '강·호수' }
 
 /** "부산광역시" → 부산 (목록에 짧게) */
@@ -49,6 +51,8 @@ export default function SearchPage() {
   const scene = params.get('scene')
   const sidoParam = params.get('sido')
   const sidos = useMemo(() => (sidoParam ? sidoParam.split(',').filter(Boolean) : []), [sidoParam])
+  const food = params.get('food')
+  const foodInfo = foodOf(food)
   const kwParam = params.get('kw')
   /** 홈의 AI 검색 문장 (있으면 AI 추천을 보여줌) */
   const ask = params.get('q')
@@ -59,6 +63,7 @@ export default function SearchPage() {
 
   const [courses, setCourses] = useState<CourseCard[]>([])
   const [total, setTotal] = useState(0)
+  const [foodTotal, setFoodTotal] = useState<number | null>(null)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -99,6 +104,7 @@ export default function SearchPage() {
         }
         setCourses(res.courses)
         setTotal(res.total)
+        setFoodTotal(res.foodTotal ?? null)
         setPage(0)
       })
       .catch((e: Error) => !cancelled && setError(e.message))
@@ -108,7 +114,7 @@ export default function SearchPage() {
     }
     // listUrl 은 아래 조건으로만 바뀐다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valid, lat, lng, radius, keywords, scene, sidoParam, setParams])
+  }, [valid, lat, lng, radius, keywords, scene, sidoParam, food, setParams])
 
   /** 코스 목록 주소: 지점 반경(/courses) 또는 시도 전체·전국(/courses/region) */
   function listUrl(pageNo: number) {
@@ -117,6 +123,7 @@ export default function SearchPage() {
       : new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), page: String(pageNo) })
     if (region && sidos.length) q.set('sido', sidos.join(','))
     if (scene) q.set('scene', scene)
+    if (foodInfo && food) q.set('food', food)
     if (keywords.length) q.set('kw', keywords.join(','))
     return region ? `/courses/region?${q}` : `/courses?${q}`
   }
@@ -233,6 +240,7 @@ export default function SearchPage() {
     const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(Math.max(1500, l.radius)) })
     if (keywords.length) next.set('kw', keywords.join(','))
     if (scene) next.set('scene', scene)
+    if (food) next.set('food', food)
     if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
@@ -256,12 +264,20 @@ export default function SearchPage() {
     if (url) navigate(url, { state: { understood: r.understood, aiUsed: r.aiUsed } })
   }
 
+  /** 메뉴 조건 빼기 */
+  function dropFood() {
+    const next = new URLSearchParams(params)
+    next.delete('food')
+    setParams(next, { replace: true })
+  }
+
   function searchHere() {
     if (!map) return
     const c = map.getCenter()
     const next = new URLSearchParams({ lat: c.lat().toFixed(5), lng: c.lng().toFixed(5), r: String(Math.min(20000, visibleRadius(map))) })
     if (keywords.length) next.set('kw', keywords.join(','))
     if (scene) next.set('scene', scene)
+    if (food) next.set('food', food)
     if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
@@ -282,7 +298,8 @@ export default function SearchPage() {
         <h1>
           코스 순위{' '}
           <span className="muted small">
-            {region ? `${sidos.length ? sidos.map(shortSido).join('·') : '전국'}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}` : `반경 ${formatDistance(radius)}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}`} · {total}개
+            {region ? `${sidos.length ? sidos.map(shortSido).join('·') : '전국'}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}` : `반경 ${formatDistance(radius)}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}`}
+            {foodInfo ? ` · ${foodInfo.name}` : ''} · {total}개
           </span>
         </h1>
         <AiAsk key={ask ?? ''} initial={ask ?? ''} compact onParsed={askHere} />
@@ -298,7 +315,7 @@ export default function SearchPage() {
       )}
       {ask && !loading && courses.length > 0 && (
         <AiPicks
-          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}`}
+          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}|${food}`}
           q={ask}
           lat={point ? lat : null}
           lng={point ? lng : null}
@@ -306,6 +323,7 @@ export default function SearchPage() {
           keywords={keywords}
           sido={sidos}
           scene={scene}
+          food={foodInfo ? food : null}
           onShow={(id) => {
             if (!courses.some((c) => c.id === id)) return false
             setSelected(id)
@@ -314,6 +332,16 @@ export default function SearchPage() {
         />
       )}
 
+      {foodInfo && !loading && courses.length > 0 && foodTotal != null && (
+        <p className="notice-soft small">
+          {foodTotal > 0
+            ? `${foodInfo.name} 가게가 든 코스 ${foodTotal}개를 위로 올렸어요.`
+            : `이 근처에는 ${foodInfo.name} 가게가 든 코스가 아직 없어요. 코스를 열면 "${foodInfo.name} 가게 넣기"로 근처 가게를 찾아 코스에 넣을 수 있어요.`}{' '}
+          <button type="button" className="link-button" onClick={dropFood}>
+            메뉴 빼기
+          </button>
+        </p>
+      )}
       {error && <p className="notice">{error}</p>}
       {widenedFrom && widenedFrom < radius && courses.length > 0 && (
         <p className="notice-soft">
@@ -345,13 +373,14 @@ export default function SearchPage() {
                   .join(' · ')}
               </p>
               <div className="tags">
+                {foodInfo && c.foodMatched && <span className="tag matched">🍽 {foodInfo.name}</span>}
                 {c.keywords.map((code) => (
                   <span key={code} className={c.matchedKeywords.includes(code) ? 'tag matched' : 'tag'}>
                     {names[code] ?? code}
                   </span>
                 ))}
               </div>
-              <Link to={`/courses/${c.id}`} className="more" onClick={(e) => e.stopPropagation()}>
+              <Link to={`/courses/${c.id}${foodInfo && food ? `?food=${food}` : ''}`} className="more" onClick={(e) => e.stopPropagation()}>
                 코스 자세히 보기 →
               </Link>
             </div>

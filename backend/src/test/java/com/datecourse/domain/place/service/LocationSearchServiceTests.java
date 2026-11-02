@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.datecourse.domain.place.client.NaverGeocodeClient;
+import com.datecourse.domain.place.client.NaverLocalSearchClient;
 import com.datecourse.domain.place.dto.AddressResult;
 import com.datecourse.domain.place.dto.LocationResult;
 import com.datecourse.domain.place.exception.PlaceException;
@@ -30,7 +31,8 @@ class LocationSearchServiceTests {
     LocationSearchRepository repository = mock(LocationSearchRepository.class);
     NaverGeocodeClient geocoder = mock(NaverGeocodeClient.class);
     JsonCache cache = mock(JsonCache.class);
-    LocationSearchService service = new LocationSearchService(repository, geocoder, cache, 2);
+    NaverPlaceSearchService naver = mock(NaverPlaceSearchService.class);
+    LocationSearchService service = new LocationSearchService(repository, geocoder, cache, naver, 2);
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -124,5 +126,31 @@ class LocationSearchServiceTests {
         given(cache.increment(anyString(), any())).willReturn(-1L);
         service.search("강남대로 396");
         verify(geocoder, never()).geocode(anyString());
+    }
+
+    @Test
+    void 우리_데이터와_주소로_못_찾은_상권은_네이버에서_이름이_든_가게_자리로() {
+        given(naver.search("안양일번가")).willReturn(List.of(
+                new NaverLocalSearchClient.Item("엉뚱한 가게", "음식점", "경기도 안양시 만안구 안양동 2", "", 37.30, 126.80),
+                new NaverLocalSearchClient.Item("KFC 안양일번가점", "패스트푸드", "경기도 안양시 만안구 안양동 1", "경기도 안양시 만안구 안양로 1", 37.40, 126.92)));
+
+        List<LocationResult> found = service.search("안양일번가");
+
+        assertThat(found).singleElement().satisfies(r -> {
+            assertThat(r.kind()).isEqualTo("named");
+            assertThat(r.name()).isEqualTo("안양일번가");
+            assertThat(r.detail()).isEqualTo("경기도 안양시 만안구 안양로 1");
+            assertThat(r.lat()).isEqualTo(37.40);
+        });
+    }
+
+    @Test
+    void 이름이_든_가게가_없거나_네이버를_못_쓰면_빈_목록() {
+        given(naver.search("놀거리많은곳")).willReturn(List.of(
+                new NaverLocalSearchClient.Item("엉뚱한 가게", "음식점", "경기도 안양시", "", 37.30, 126.80)));
+        assertThat(service.searchNamed("놀거리많은곳")).isEmpty();
+
+        given(naver.search("안양일번가")).willThrow(PlaceException.searchUnavailable());
+        assertThat(service.searchNamed("안양일번가")).isEmpty();
     }
 }

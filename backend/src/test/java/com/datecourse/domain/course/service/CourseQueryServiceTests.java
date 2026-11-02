@@ -66,7 +66,7 @@ class CourseQueryServiceTests {
 
     @Test
     void 검색_결과에_단계와_고른_키워드_중_맞은_것을_붙인다() {
-        given(repository.search(eq(37.5), eq(127.0), eq(3000), eq(List.of("quiet", "walk")), any(), anyInt(), anyInt())).willReturn(List.of(
+        given(repository.search(eq(37.5), eq(127.0), eq(3000), eq(List.of("quiet", "walk")), any(), any(), anyInt(), anyInt())).willReturn(List.of(
                 new CourseQueryRepository.Row(7, "미술관 데이트 코스", "미술관 → 카페", "auto", "서울특별시", "종로구",
                         37.5, 127.0, 200, 123.4, 1)));
         given(repository.steps(anyList())).willReturn(Map.of(7L, List.of(new CourseQueryRepository.StepPlace(7, 1, "spot", 60, null, null,
@@ -83,9 +83,9 @@ class CourseQueryServiceTests {
 
     @Test
     void 근처에_코스가_없으면_두_배씩_넓혀_찾는다() {
-        given(repository.search(eq(37.5), eq(127.0), eq(2000), any(), any(), anyInt(), anyInt())).willReturn(List.of());
-        given(repository.search(eq(37.5), eq(127.0), eq(4000), any(), any(), anyInt(), anyInt())).willReturn(List.of());
-        given(repository.search(eq(37.5), eq(127.0), eq(8000), any(), any(), anyInt(), anyInt())).willReturn(List.of(
+        given(repository.search(eq(37.5), eq(127.0), eq(2000), any(), any(), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.search(eq(37.5), eq(127.0), eq(4000), any(), any(), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.search(eq(37.5), eq(127.0), eq(8000), any(), any(), any(), anyInt(), anyInt())).willReturn(List.of(
                 new CourseQueryRepository.Row(7, "코스", "a → b", "auto", "서울특별시", "종로구", 37.5, 127.0, 200, 6000, 1)));
         given(repository.steps(anyList())).willReturn(Map.of());
         given(repository.keywords(anyList())).willReturn(Map.of());
@@ -99,7 +99,7 @@ class CourseQueryServiceTests {
 
     @Test
     void 십_km_까지_넓혀도_없으면_빈_목록() {
-        given(repository.search(anyDouble(), anyDouble(), anyInt(), any(), any(), anyInt(), anyInt())).willReturn(List.of());
+        given(repository.search(anyDouble(), anyDouble(), anyInt(), any(), any(), any(), anyInt(), anyInt())).willReturn(List.of());
         given(repository.steps(anyList())).willReturn(Map.of());
         given(repository.keywords(anyList())).willReturn(Map.of());
 

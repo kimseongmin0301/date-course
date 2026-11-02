@@ -10,6 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.datecourse.domain.collector.util.Regions;
+import com.datecourse.domain.course.util.Foods;
 
 /**
  * "AI 검색"의 규칙 부분. LLM 보다 먼저, 확실한 것만 알아듣는다 (빠르고 틀리지 않게).
@@ -21,15 +22,16 @@ import com.datecourse.domain.collector.util.Regions;
  *   - 시도: "부산", "제주도", "경상남도"는 지점이 아니라 그 시도 전체 (예전엔 "부산"이 같은 글자로 시작하는 부산진구=서면으로 잡혔음).
  *     "전라도"·"경상도"·"충청도"는 시도 둘, "서해(안)"·"남해안"·"동해안"은 그 바다를 낀 시도들 + 바다
  *   - 비·눈 + 풍경: "비 오는 날 바다"는 실내로 바꾸지 않고 비 오는 날 그 풍경을 원하는 것으로 본다
+ *   - 메뉴: 햄버거·초밥·고기… (Foods) → 그 메뉴 식당이 든 코스를 위로. 메뉴 말은 지역 후보가 아니다 ("안양일번가 햄버거")
  */
 public final class QueryRules {
 
     private QueryRules() {
     }
 
-    /** scene: 풍경 코드(없으면 null), sidos: 시도 범위(비면 없음), rainy: 비·눈 오는 날 */
+    /** scene: 풍경 코드(없으면 null), sidos: 시도 범위(비면 없음), rainy: 비·눈 오는 날, food: 메뉴 코드(없으면 null) */
     public record Parsed(Set<String> keywords, String setting, String budget, List<String> areaCandidates, Set<String> leftover,
-                         String scene, List<String> sidos, boolean rainy) {
+                         String scene, List<String> sidos, boolean rainy, String food) {
 
         /** 규칙만으로 지역·키워드를 다 알아들었는지 (못 알아들은 말이 남으면 LLM 에 물어본다) */
         public boolean complete() {
@@ -109,6 +111,7 @@ public final class QueryRules {
         String setting = INDOOR.matcher(q).find() ? "indoor" : OUTDOOR.matcher(q).find() ? "outdoor" : null;
         boolean rainy = RAIN.matcher(q).find();
         String scene = null;
+        String food = null;
         List<String> sidos = new ArrayList<>();
         String budget = null;
         Matcher m = MANWON.matcher(q);
@@ -127,7 +130,17 @@ public final class QueryRules {
         Set<String> leftover = new LinkedHashSet<>();
         for (String raw : q.split("[\\s,.!?·/]+")) {
             String word = stripJosa(raw.replaceAll("[^0-9A-Za-z가-힣]", ""));
-            if (word.isEmpty() || word.matches("\\d+.*") || STOP.contains(word)) {
+            if (word.isEmpty() || word.matches("\\d+.*")) {
+                continue;
+            }
+            Foods.Food foodOfWord = Foods.ofWord(word);
+            if (foodOfWord != null) {
+                if (food == null) {
+                    food = foodOfWord.code();
+                }
+                continue;   // "빵", "디저트"처럼 STOP 에도 있는 말도 메뉴로
+            }
+            if (STOP.contains(word)) {
                 continue;
             }
             String sceneOfWord = sceneOf(word);
@@ -168,7 +181,7 @@ public final class QueryRules {
         if (scene != null && "indoor".equals(setting) && !INDOOR_WISH.matcher(q).find()) {
             setting = null;
         }
-        return new Parsed(keywords, setting, budget, areas.stream().distinct().limit(4).toList(), leftover, scene, List.copyOf(sidos), rainy);
+        return new Parsed(keywords, setting, budget, areas.stream().distinct().limit(4).toList(), leftover, scene, List.copyOf(sidos), rainy, food);
     }
 
     static String sceneOf(String word) {

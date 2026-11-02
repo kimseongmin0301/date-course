@@ -28,8 +28,9 @@ public class CourseController {
                                        @RequestParam(required = false) Integer radius,
                                        @RequestParam(name = "kw", required = false) List<String> keywords,
                                        @RequestParam(required = false) Integer page,
-                                       @RequestParam(required = false) String scene) {
-        return courseQueryService.search(courseQueryService.normalize(lat, lng, radius, keywords, page, scene));
+                                       @RequestParam(required = false) String scene,
+                                       @RequestParam(required = false) String food) {
+        return courseQueryService.search(courseQueryService.normalize(lat, lng, radius, keywords, page, scene, food));
     }
 
     /** 시도 전체·전국 코스 순위 (AI 검색 "부산 바닷가", "바다 가고 싶어"): sido 없으면 전국, scene 바다·산·물가. 둘 중 하나는 있어야 함 */
@@ -37,8 +38,9 @@ public class CourseController {
     public CourseSearchResponse searchRegion(@RequestParam(required = false) List<String> sido,
                                              @RequestParam(required = false) String scene,
                                              @RequestParam(name = "kw", required = false) List<String> keywords,
-                                             @RequestParam(required = false) Integer page) {
-        return courseQueryService.searchRegion(courseQueryService.normalizeRegion(sido, scene, keywords, page));
+                                             @RequestParam(required = false) Integer page,
+                                             @RequestParam(required = false) String food) {
+        return courseQueryService.searchRegion(courseQueryService.normalizeRegion(sido, scene, keywords, page, food));
     }
 
     /** 코스 order 번째 단계의 근처 대안 (같은 역할, 좋은 순 5곳). 없는 코스·단계는 404 */

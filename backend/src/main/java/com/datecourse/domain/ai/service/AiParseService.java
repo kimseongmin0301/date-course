@@ -14,6 +14,7 @@ import com.datecourse.domain.ai.client.OllamaClient;
 import com.datecourse.domain.ai.dto.AiParseResponse;
 import com.datecourse.domain.ai.exception.AiException;
 import com.datecourse.domain.ai.util.QueryRules;
+import com.datecourse.domain.course.util.Foods;
 import com.datecourse.domain.course.util.Scenes;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
 import com.datecourse.domain.keyword.service.KeywordService;
@@ -26,7 +27,8 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * AI 검색 (실험 기능): "비 오는 날 성수동 조용한 데이트, 5만원" → 지역 + 키워드 칩.
- *   1. 규칙(QueryRules)이 실내외·예산·비슷한 말을 먼저 알아듣고, 지역은 낱말마다 우리 지역 데이터로 확인한다.
+ *   1. 규칙(QueryRules)이 실내외·예산·비슷한 말·메뉴를 먼저 알아듣고, 지역은 낱말마다 우리 지역 데이터로 확인한다.
+ *      없으면 앞의 두 낱말을 네이버 지역 검색으로 확인한다 (상권·건물 이름: "안양일번가").
  *   2. 지역이나 분위기·활동을 못 알아들었을 때만 Ollama 에 묻는다 (AiGate: 한 번에 하나, 한도, 바쁘면 건너뜀).
  *   3. AI 답은 검수한다: 지역은 원래 문장에 그 글자가 있을 때만, 키워드는 정해진 17개 이름만. 규칙이 정한 실내외·예산은 AI 가 못 바꾼다.
  * 결과는 화면이 키워드 칩으로 보여주고 사람이 고친다. 같은 문장은 하루 캐시(AI 를 못 불렀으면 10분). 캐시 키는 문장 대신 해시.
@@ -37,6 +39,8 @@ public class AiParseService {
     public static final int MIN = 2;
     public static final int MAX = 100;
     static final int MAX_KEYWORDS = 3;
+    /** 네이버 지역 검색으로 확인해 볼 낱말 수 */
+    static final int NAMED_TRIES = 2;
 
     private final LocationSearchService locations;
     private final KeywordService keywords;
@@ -80,6 +84,17 @@ public class AiParseService {
                 break;
             }
         }
+        // 우리 지역 데이터에 없는 상권·건물 이름("안양일번가", "더현대서울")은 네이버 지역 검색으로.
+        // 세 글자 이상 앞의 두 낱말만 (하루 한도를 아끼고, "놀거리" 같은 짧은 말이 가게 이름에 걸려 엉뚱한 곳으로 가지 않게)
+        if (area == null) {
+            for (String candidate : rules.areaCandidates().stream().filter(w -> w.length() >= 3).limit(NAMED_TRIES).toList()) {
+                area = pickArea(candidate, locations.searchNamed(candidate), sidos);
+                if (area != null) {
+                    break;
+                }
+            }
+        }
+        String food = rules.food();
         String scene = rules.scene();
         Set<String> moods = new LinkedHashSet<>(rules.keywords());
         String setting = rules.setting();
@@ -89,7 +104,7 @@ public class AiParseService {
 
         // 지역(지점·시도·풍경 중 하나)이나 분위기(풍경이 있으면 그것으로 충분)를 못 알아들었을 때만 AI 에게
         boolean needArea = area == null && sidos.isEmpty() && scene == null;
-        if (needArea || (moods.isEmpty() && scene == null)) {
+        if (needArea || (moods.isEmpty() && scene == null && food == null)) {
             JsonNode ai = null;
             try {
                 ai = gate.call(ip, () -> ollama.generateJson(prompt(q), 160));
@@ -141,8 +156,8 @@ public class AiParseService {
                 codes.add(m);
             }
         }
-        return new Cached(new AiParseResponse(area, codes, aiUsed, understood(area, sidos, scene, rules.rainy(), codes),
-                List.copyOf(sidos), scene, rules.rainy()), settled);
+        return new Cached(new AiParseResponse(area, codes, aiUsed, understood(area, sidos, scene, rules.rainy(), food, codes),
+                List.copyOf(sidos), scene, rules.rainy(), food), settled);
     }
 
     private static final java.util.regex.Pattern SETTING_HINT = java.util.regex.Pattern.compile("실내|실외|야외|밖|안에서|날씨|비|눈|덥|더운|추운|춥|햇");
@@ -203,7 +218,7 @@ public class AiParseService {
         return map;
     }
 
-    String understood(LocationResult area, List<String> sidos, String scene, boolean rainy, List<String> codes) {
+    String understood(LocationResult area, List<String> sidos, String scene, boolean rainy, String food, List<String> codes) {
         Map<String, String> names = keywords.all().stream().collect(Collectors.toMap(KeywordResponse::code, KeywordResponse::name, (a, b) -> a));
         List<String> parts = new ArrayList<>();
         if (area != null) {
@@ -219,6 +234,10 @@ public class AiParseService {
         }
         if (rainy) {
             parts.add("비 오는 날");
+        }
+        Foods.Food f = Foods.of(food);
+        if (f != null) {
+            parts.add(f.name());
         }
         codes.stream().map(c -> names.getOrDefault(c, c)).forEach(parts::add);
         return String.join(" · ", parts);

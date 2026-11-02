@@ -26,6 +26,7 @@ import com.datecourse.domain.course.exception.CourseException;
 import com.datecourse.domain.course.entity.StepRole;
 import com.datecourse.domain.course.repository.CourseQueryRepository;
 import com.datecourse.domain.course.util.CoursePlanner;
+import com.datecourse.domain.course.util.Foods;
 import com.datecourse.domain.course.util.Scenes;
 import com.datecourse.domain.place.entity.PlaceCategory;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
@@ -69,11 +70,11 @@ public class CourseQueryService {
 
     /** 입력을 확인하고 캐시 키가 같아지게 정리한다 (키워드 소문자·중복 제거·정렬) */
     public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page) {
-        return normalize(lat, lng, radius, keywords, page, null);
+        return normalize(lat, lng, radius, keywords, page, null, null);
     }
 
-    /** scene: 풍경 코드(sea·mountain·water), 모르는 코드는 400 */
-    public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page, String scene) {
+    /** scene: 풍경 코드(sea·mountain·water), food: 메뉴 코드(Foods), 모르는 코드는 400 */
+    public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page, String scene, String food) {
         if (lat == null || lng == null || !Geo.inKorea(lat, lng)) {
             throw CourseException.badRequest("지도에서 국내 지역을 골라 주세요.");
         }
@@ -96,7 +97,22 @@ public class CourseQueryService {
         if (!known.containsAll(codes)) {
             throw CourseException.badRequest("모르는 키워드가 있어요.");
         }
-        return new CourseSearchRequest(lat, lng, r, codes, p, checkScene(scene));
+        return new CourseSearchRequest(lat, lng, r, codes, p, checkScene(scene), checkFood(food));
+    }
+
+    private static String checkFood(String food) {
+        if (food == null || food.isBlank()) {
+            return null;
+        }
+        if (Foods.of(food) == null) {
+            throw CourseException.badRequest("모르는 메뉴예요.");
+        }
+        return food;
+    }
+
+    private static String foodRegex(String food) {
+        Foods.Food f = Foods.of(food);
+        return f == null ? null : f.regex();
     }
 
     private static String checkScene(String scene) {
@@ -110,16 +126,24 @@ public class CourseQueryService {
     }
 
     /** 시도 전체·전국 검색 조건: sidos(공식 이름, 비면 전국, "전라도"면 둘), scene, 키워드. 시도와 풍경 중 하나는 있어야 함 */
-    public record RegionRequest(List<String> sidos, String scene, List<String> keywords, int page) {
+    public record RegionRequest(List<String> sidos, String scene, List<String> keywords, int page, String food) {
+
+        public RegionRequest(List<String> sidos, String scene, List<String> keywords, int page) {
+            this(sidos, scene, keywords, page, null);
+        }
 
         public String cacheKey() {
             return "courses:region:" + (sidos.isEmpty() ? "-" : String.join(",", sidos)) + ":" + (scene == null ? "-" : scene) + ":"
-                    + String.join(",", keywords) + ":" + page;
+                    + String.join(",", keywords) + ":" + page + (food == null ? "" : ":food=" + food);
         }
     }
 
     /** sido: 쉼표로 여럿 ("부산", "전북특별자치도,전남광주통합특별시") */
     public RegionRequest normalizeRegion(List<String> sido, String scene, List<String> keywords, Integer page) {
+        return normalizeRegion(sido, scene, keywords, page, null);
+    }
+
+    public RegionRequest normalizeRegion(List<String> sido, String scene, List<String> keywords, Integer page, String food) {
         List<String> sidos = new java.util.ArrayList<>();
         for (String raw : sido == null ? List.<String>of() : sido.stream().flatMap(v -> List.of(v.split(",")).stream()).toList()) {
             if (raw.isBlank()) {
@@ -138,7 +162,7 @@ public class CourseQueryService {
             throw CourseException.badRequest("시도나 풍경을 골라 주세요.");
         }
         CourseSearchRequest base = normalize(37.5, 127.0, null, keywords, page);   // 키워드·쪽 검사만 같이 쓴다
-        return new RegionRequest(sidos.stream().sorted().toList(), sc, base.keywords(), base.page());
+        return new RegionRequest(sidos.stream().sorted().toList(), sc, base.keywords(), base.page(), checkFood(food));
     }
 
     /** 시도 전체·전국에서 코스 순위 (코스 점수 + 키워드 일치, 거리 없음). radius 는 0 */
@@ -147,12 +171,18 @@ public class CourseQueryService {
             int size = CourseSearchRequest.PAGE_SIZE;
             Scenes.Scene scene = Scenes.of(req.scene());
             List<CourseQueryRepository.Row> rows = repository.searchRegion(req.sidos(), req.keywords(), scene == null ? null : scene.regex(),
-                    size, req.page() * size);
-            return new CourseSearchResponse(rows.isEmpty() ? 0 : rows.get(0).total(), req.page(), size, 0, false, cards(rows, req.keywords()));
+                    foodRegex(req.food()), size, req.page() * size);
+            return new CourseSearchResponse(rows.isEmpty() ? 0 : rows.get(0).total(), req.page(), size, 0, false,
+                    cards(rows, req.keywords(), req.food() != null), foodTotal(rows, req.food()));
         });
     }
 
-    private List<CourseCard> cards(List<CourseQueryRepository.Row> rows, List<String> selected) {
+    /** 메뉴를 골랐으면 그 메뉴가 든 코스 수 (없으면 0), 안 골랐으면 null */
+    private static Integer foodTotal(List<CourseQueryRepository.Row> rows, String food) {
+        return food == null ? null : rows.isEmpty() ? 0 : rows.get(0).foodTotal();
+    }
+
+    private List<CourseCard> cards(List<CourseQueryRepository.Row> rows, List<String> selected, boolean withFood) {
         List<Long> ids = rows.stream().map(CourseQueryRepository.Row::id).toList();
         Map<Long, List<CourseQueryRepository.StepPlace>> steps = repository.steps(ids);
         Map<Long, List<String>> keywords = repository.keywords(ids);
@@ -161,7 +191,8 @@ public class CourseQueryService {
             return new CourseCard(r.id(), r.title(), r.summary(), r.kind(), r.sido(), r.sigungu(), r.centerLat(), r.centerLng(),
                     r.totalMinutes(), (int) Math.round(r.distance()), codes,
                     codes.stream().filter(selected::contains).toList(),
-                    steps.getOrDefault(r.id(), List.of()).stream().map(CourseQueryRepository.StepPlace::summary).toList());
+                    steps.getOrDefault(r.id(), List.of()).stream().map(CourseQueryRepository.StepPlace::summary).toList(),
+                    withFood ? r.foodMatch() : null);
         }).toList();
     }
 
@@ -174,16 +205,17 @@ public class CourseQueryService {
         int radius = req.radius();
         Scenes.Scene scene = Scenes.of(req.scene());
         String sceneRegex = scene == null ? null : scene.regex();
-        List<CourseQueryRepository.Row> rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex,
+        String food = foodRegex(req.food());
+        List<CourseQueryRepository.Row> rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, food,
                 size, req.page() * size);
         // 첫 쪽이 비면(근처에 코스가 없는 동네) 넓혀서라도 가까운 코스를 보여준다
         while (rows.isEmpty() && req.page() == 0 && radius < WIDEN_MAX) {
             radius = Math.min(radius * 2, WIDEN_MAX);
-            rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, size, 0);
+            rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, food, size, 0);
         }
-        List<CourseCard> cards = cards(rows, req.keywords());
+        List<CourseCard> cards = cards(rows, req.keywords(), req.food() != null);
         int total = rows.isEmpty() ? 0 : rows.get(0).total();
-        return new CourseSearchResponse(total, req.page(), size, radius, radius != req.radius(), cards);
+        return new CourseSearchResponse(total, req.page(), size, radius, radius != req.radius(), cards, foodTotal(rows, req.food()));
     }
 
     public CourseDetailResponse detail(long id) {

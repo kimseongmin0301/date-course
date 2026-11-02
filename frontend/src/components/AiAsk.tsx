@@ -12,6 +12,8 @@ export interface AiParse {
   /** 풍경: sea(바다)·mountain(산·숲)·water(강·호수) */
   scene: string | null
   rainy: boolean
+  /** 메뉴 (burger·sushi…, lib/foods.ts): 그 메뉴 가게가 든 코스를 위로 */
+  food: string | null
 }
 
 /**
