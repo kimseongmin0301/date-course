@@ -73,14 +73,13 @@ public class AiParseService {
     private Cached load(String q, String ip) {
         QueryRules.Parsed rules = QueryRules.parse(q);
         LocationResult area = null;
+        List<String> sidos = new ArrayList<>(rules.sidos());
         for (String candidate : rules.areaCandidates()) {
-            List<LocationResult> found = locations.searchLocal(candidate);
-            if (!found.isEmpty()) {
-                area = found.get(0);
+            area = pickArea(candidate, locations.searchLocal(candidate), sidos);
+            if (area != null) {
                 break;
             }
         }
-        List<String> sidos = new ArrayList<>(rules.sidos());
         String scene = rules.scene();
         Set<String> moods = new LinkedHashSet<>(rules.keywords());
         String setting = rules.setting();
@@ -148,6 +147,25 @@ public class AiParseService {
 
     private static final java.util.regex.Pattern SETTING_HINT = java.util.regex.Pattern.compile("실내|실외|야외|밖|안에서|날씨|비|눈|덥|더운|추운|춥|햇");
     private static final java.util.regex.Pattern BUDGET_HINT = java.util.regex.Pattern.compile("부담|저렴|싸|비싸|비싼|가격|예산|돈|만원|가성비|고급|럭셔리");
+
+    /**
+     * 낱말로 찾은 지역 중 받아들일 것. 명소(place)는 이름이 낱말과 같거나 낱말(3자 이상)로 시작할 때만
+     * ("카페" → "카페도자기마을"처럼 이름에 들어 있기만 한 곳을 지점으로 잡지 않게), 시도를 알아들었으면 그 시도 안의 것만
+     */
+    static LocationResult pickArea(String word, List<LocationResult> found, List<String> sidos) {
+        for (LocationResult r : found) {
+            String name = r.name().replace(" ", "");
+            boolean placeOk = !"place".equals(r.kind()) || name.equals(word) || (word.length() >= 3 && name.startsWith(word));
+            boolean inSido = sidos.isEmpty() || sidos.stream().anyMatch(sd -> {
+                String text = r.name() + " " + (r.detail() == null ? "" : r.detail());
+                return text.contains(sd) || text.contains(sd.substring(0, 2));
+            });
+            if (placeOk && inSido) {
+                return r;
+            }
+        }
+        return null;
+    }
 
     /** AI 답에서 받아들인 것 */
     record Accepted(String area, List<String> moods, String setting, String budget) {

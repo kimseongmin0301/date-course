@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import AiAsk, { type AiParse } from '../components/AiAsk'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
+import { searchUrlOf } from '../lib/aiSearch'
 import { AREAS } from '../lib/areas'
 import { jumpTo, visibleRadius, zoomForRadius } from '../lib/naverMap'
 import { useMap } from '../map/context'
@@ -48,23 +49,9 @@ export default function HomePage() {
   function applyParsed(q: string, r: AiParse) {
     setAsk(q)
     setKeywords(r.keywords)
-    const params = new URLSearchParams()
-    if (r.area || (!r.sidos.length && !r.scene)) {
-      // 지점(성수동·반석역)이 있으면 그 반경, 아무것도 못 알아들었으면 지금 지도 가운데
-      const c = r.area ? { lat: r.area.lat, lng: r.area.lng } : map ? { lat: map.getCenter().lat(), lng: map.getCenter().lng() } : null
-      if (!c) return
-      params.set('lat', c.lat.toFixed(5))
-      params.set('lng', c.lng.toFixed(5))
-      params.set('r', String(Math.max(1500, r.area ? r.area.radius : map ? visibleRadius(map) : 3000)))
-    } else if (r.sidos.length) {
-      // "부산 바닷가", "전라도" → 그 시도 전체 (지점 하나로 좁히지 않음)
-      params.set('sido', r.sidos.join(','))
-    }
-    // 풍경만 있으면("바다 가고 싶어") 전국에서
-    if (r.scene) params.set('scene', r.scene)
-    if (r.keywords.length) params.set('kw', r.keywords.join(','))
-    params.set('q', q)
-    navigate(`/search?${params}`, { state: { understood: r.understood, aiUsed: r.aiUsed } })
+    const here = map ? { lat: map.getCenter().lat(), lng: map.getCenter().lng(), radius: visibleRadius(map) } : null
+    const url = searchUrlOf(q, r, here)
+    if (url) navigate(url, { state: { understood: r.understood, aiUsed: r.aiUsed } })
   }
 
   function search() {

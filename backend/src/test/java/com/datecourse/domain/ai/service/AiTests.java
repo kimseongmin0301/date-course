@@ -49,6 +49,14 @@ class AiTests {
         assertThat(QueryRules.parse("제주시 카페").sidos()).isEmpty();
         assertThat(QueryRules.parse("제주도 카페").sidos()).containsExactly("제주특별자치도");
         assertThat(QueryRules.parse("산책하기 좋은 곳").scene()).isNull();   // 산책은 산이 아님
+        assertThat(QueryRules.parse("제주 바다 감성 카페").areaCandidates()).isEmpty();   // "카페"는 지역 이름이 아님
+
+        // 명소는 이름이 낱말로 시작할 때만, 시도를 알아들었으면 그 시도 안의 것만
+        var cafeVillage = new com.datecourse.domain.place.dto.LocationResult("place", "카페도자기마을", "경기도 남양주시", 37.56, 127.31, 1500);
+        var gwangalli = new com.datecourse.domain.place.dto.LocationResult("place", "광안리해수욕장", "부산광역시 수영구", 35.15, 129.12, 1500);
+        assertThat(AiParseService.pickArea("도자기", List.of(cafeVillage), List.of())).isNull();
+        assertThat(AiParseService.pickArea("광안리", List.of(gwangalli), List.of("부산광역시"))).isEqualTo(gwangalli);
+        assertThat(AiParseService.pickArea("광안리", List.of(gwangalli), List.of("제주특별자치도"))).isNull();
     }
 
     @Test

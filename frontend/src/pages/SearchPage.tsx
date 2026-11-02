@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import AiAsk, { type AiParse } from '../components/AiAsk'
 import AiPicks from '../components/AiPicks'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
+import { searchUrlOf } from '../lib/aiSearch'
 import { api } from '../lib/api'
 import { formatDistance, formatMinutes, parseKeywords, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
@@ -27,10 +29,16 @@ function shortSido(sido: string): string {
 export default function SearchPage() {
   const [params, setParams] = useSearchParams()
   // 근처에 코스가 없어 반경을 넓혔으면 원래 반경을 기억해 안내한다
-  const navState = useLocation().state as { widenedFrom?: number; understood?: string; aiUsed?: boolean } | null
+  const location = useLocation()
+  const navState = location.state as { widenedFrom?: number; understood?: string; aiUsed?: boolean } | null
   const widenedFrom = navState?.widenedFrom
-  // 말로 찾기로 들어왔을 때 알아들은 내용 (반경을 넓히며 state 가 바뀌어도 처음 것을 둔다)
-  const [understood] = useState(() => (navState?.understood ? { text: navState.understood, aiUsed: !!navState.aiUsed } : null))
+  // 말로 찾기로 들어왔을 때 알아들은 내용. 이 화면에서 다시 말로 찾으면 바꾸고, 반경을 넓히며 state 가 바뀔 때는 그대로 둔다
+  const [understood, setUnderstood] = useState(() => (navState?.understood ? { text: navState.understood, aiUsed: !!navState.aiUsed } : null))
+  useEffect(() => {
+    if (navState?.understood) setUnderstood({ text: navState.understood, aiUsed: !!navState.aiUsed })
+    // 화면 이동(location.key)마다 한 번
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key])
   const navigate = useNavigate()
   const { map, overlay } = useMap()
 
@@ -240,6 +248,14 @@ export default function SearchPage() {
     }
   }
 
+  /** 이 화면에서 말로 찾기: 알아들은 조건으로 목록을 바꾼다 (지역을 못 알아들으면 지금 지도에서) */
+  function askHere(q: string, r: AiParse) {
+    const c = map?.getCenter()
+    const here = c ? { lat: c.lat(), lng: c.lng(), radius: map ? visibleRadius(map) : radius } : point ? { lat, lng, radius } : null
+    const url = searchUrlOf(q, r, here)
+    if (url) navigate(url, { state: { understood: r.understood, aiUsed: r.aiUsed } })
+  }
+
   function searchHere() {
     if (!map) return
     const c = map.getCenter()
@@ -269,6 +285,7 @@ export default function SearchPage() {
             {region ? `${sidos.length ? sidos.map(shortSido).join('·') : '전국'}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}` : `반경 ${formatDistance(radius)}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}`} · {total}개
           </span>
         </h1>
+        <AiAsk key={ask ?? ''} initial={ask ?? ''} compact onParsed={askHere} />
         <LocationSearch onPick={searchAt} />
         <KeywordPicker value={keywords} onChange={changeKeywords} compact />
       </div>
