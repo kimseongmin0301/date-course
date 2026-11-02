@@ -7,6 +7,7 @@ import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { searchUrlOf } from '../lib/aiSearch'
 import { foodOf } from '../lib/foods'
+import { putShop, shopFromParams, shopOf, shopQuery } from '../lib/shop'
 import { api } from '../lib/api'
 import { formatDistance, formatMinutes, parseKeywords, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
@@ -18,6 +19,7 @@ import { useMap } from '../map/context'
 // 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy (지점 반경)
 //         /search?sido=부산광역시&scene=sea&q=… (AI 검색: 시도 전체), /search?scene=sea (풍경만: 전국)
 //         &food=burger (AI 검색의 메뉴: 그 메뉴 가게가 든 코스를 위로, 없으면 코스에 넣는 방법을 안내)
+//         &shop=123&sname=…&slat=…&slng=… (가게 이름으로 찾음: 그 가게가 든 코스를 맨 위로, 다른 코스에는 "넣어 보기", lib/shop.ts)
 const SCENE_LABEL: Record<string, string> = { sea: '바다', mountain: '산·숲', water: '강·호수' }
 
 /** "부산광역시" → 부산 (목록에 짧게) */
@@ -53,6 +55,9 @@ export default function SearchPage() {
   const sidos = useMemo(() => (sidoParam ? sidoParam.split(',').filter(Boolean) : []), [sidoParam])
   const food = params.get('food')
   const foodInfo = foodOf(food)
+  const shopKey = ['shop', 'sname', 'slat', 'slng'].map((k) => params.get(k)).join('|')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const shop = useMemo(() => shopFromParams(params), [shopKey])
   const kwParam = params.get('kw')
   /** 홈의 AI 검색 문장 (있으면 AI 추천을 보여줌) */
   const ask = params.get('q')
@@ -64,6 +69,7 @@ export default function SearchPage() {
   const [courses, setCourses] = useState<CourseCard[]>([])
   const [total, setTotal] = useState(0)
   const [foodTotal, setFoodTotal] = useState<number | null>(null)
+  const [shopTotal, setShopTotal] = useState<number | null>(null)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +111,7 @@ export default function SearchPage() {
         setCourses(res.courses)
         setTotal(res.total)
         setFoodTotal(res.foodTotal ?? null)
+        setShopTotal(res.shopTotal ?? null)
         setPage(0)
       })
       .catch((e: Error) => !cancelled && setError(e.message))
@@ -114,7 +121,7 @@ export default function SearchPage() {
     }
     // listUrl 은 아래 조건으로만 바뀐다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [valid, lat, lng, radius, keywords, scene, sidoParam, food, setParams])
+  }, [valid, lat, lng, radius, keywords, scene, sidoParam, food, shop, setParams])
 
   /** 코스 목록 주소: 지점 반경(/courses) 또는 시도 전체·전국(/courses/region) */
   function listUrl(pageNo: number) {
@@ -124,6 +131,7 @@ export default function SearchPage() {
     if (region && sidos.length) q.set('sido', sidos.join(','))
     if (scene) q.set('scene', scene)
     if (foodInfo && food) q.set('food', food)
+    if (!region && shop?.id) q.set('shop', String(shop.id))
     if (keywords.length) q.set('kw', keywords.join(','))
     return region ? `/courses/region?${q}` : `/courses?${q}`
   }
@@ -242,6 +250,7 @@ export default function SearchPage() {
     if (scene) next.set('scene', scene)
     if (food) next.set('food', food)
     if (ask) next.set('q', ask)
+    putShop(next, shopOf(l))
     navigate(`/search?${next}`)
   }
 
@@ -264,6 +273,13 @@ export default function SearchPage() {
     if (url) navigate(url, { state: { understood: r.understood, aiUsed: r.aiUsed } })
   }
 
+  /** 가게 조건 빼기 */
+  function dropShop() {
+    const next = new URLSearchParams(params)
+    putShop(next, null)
+    setParams(next, { replace: true })
+  }
+
   /** 메뉴 조건 빼기 */
   function dropFood() {
     const next = new URLSearchParams(params)
@@ -279,6 +295,7 @@ export default function SearchPage() {
     if (scene) next.set('scene', scene)
     if (food) next.set('food', food)
     if (ask) next.set('q', ask)
+    putShop(next, shop)
     navigate(`/search?${next}`)
   }
 
@@ -315,7 +332,7 @@ export default function SearchPage() {
       )}
       {ask && !loading && courses.length > 0 && (
         <AiPicks
-          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}|${food}`}
+          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}|${food}|${shop?.id}`}
           q={ask}
           lat={point ? lat : null}
           lng={point ? lng : null}
@@ -324,6 +341,7 @@ export default function SearchPage() {
           sido={sidos}
           scene={scene}
           food={foodInfo ? food : null}
+          shop={shop?.id ?? null}
           onShow={(id) => {
             if (!courses.some((c) => c.id === id)) return false
             setSelected(id)
@@ -332,6 +350,17 @@ export default function SearchPage() {
         />
       )}
 
+      {shop && !loading && courses.length > 0 && (
+        <p className="notice-soft small">
+          📍 <strong>{shop.name}</strong>:{' '}
+          {shopTotal
+            ? `이 가게가 든 코스 ${shopTotal}개를 맨 위에 두었어요. 다른 코스는 "넣어 보기"로 이 가게를 넣은 일정을 볼 수 있어요.`
+            : '이 가게가 든 코스는 아직 없어요. 코스마다 "넣어 보기"를 누르면 이 가게를 넣은 일정을 볼 수 있어요.'}{' '}
+          <button type="button" className="link-button" onClick={dropShop}>
+            가게 빼기
+          </button>
+        </p>
+      )}
       {foodInfo && !loading && courses.length > 0 && foodTotal != null && (
         <p className="notice-soft small">
           {foodTotal > 0
@@ -373,6 +402,7 @@ export default function SearchPage() {
                   .join(' · ')}
               </p>
               <div className="tags">
+                {shop && c.shopMatched && <span className="tag matched">📍 {shop.name}</span>}
                 {foodInfo && c.foodMatched && <span className="tag matched">🍽 {foodInfo.name}</span>}
                 {c.keywords.map((code) => (
                   <span key={code} className={c.matchedKeywords.includes(code) ? 'tag matched' : 'tag'}>
@@ -380,9 +410,14 @@ export default function SearchPage() {
                   </span>
                 ))}
               </div>
-              <Link to={`/courses/${c.id}${foodInfo && food ? `?food=${food}` : ''}`} className="more" onClick={(e) => e.stopPropagation()}>
+              <Link to={`/courses/${c.id}${shopQuery(null, foodInfo ? food : null)}`} className="more" onClick={(e) => e.stopPropagation()}>
                 코스 자세히 보기 →
               </Link>
+              {shop && !c.shopMatched && (
+                <Link to={`/courses/${c.id}${shopQuery(shop, foodInfo ? food : null)}`} className="more shop-try" onClick={(e) => e.stopPropagation()}>
+                  📍 {shop.name} 넣어 보기 →
+                </Link>
+              )}
             </div>
           </li>
         ))}

@@ -1,4 +1,5 @@
 import type { AiParse } from '../components/AiAsk'
+import { putShop, shopOf } from './shop'
 
 /**
  * AI 검색 결과 → 코스 순위 주소 (홈과 코스 순위 화면이 같이 쓴다).
@@ -7,6 +8,7 @@ import type { AiParse } from '../components/AiAsk'
  *   - 풍경만 있으면("바다 가고 싶어") 전국
  *   - 아무것도 못 알아들었으면 지금 지도 가운데(here)
  *   - 메뉴(food)는 어디서든 붙는다 (그 메뉴 가게가 든 코스를 위로)
+ *   - 지점이 가게면 가게도 싣는다 (lib/shop.ts)
  * here 가 없고 지점·시도·풍경도 없으면 null
  */
 export function searchUrlOf(q: string, r: AiParse, here: { lat: number; lng: number; radius: number } | null): string | null {
@@ -23,6 +25,8 @@ export function searchUrlOf(q: string, r: AiParse, here: { lat: number; lng: num
   }
   if (r.scene) params.set('scene', r.scene)
   if (r.food) params.set('food', r.food)
+  // 가게 이름이면 그 가게가 든 코스를 위로, 다른 코스에는 넣어 보기
+  putShop(params, shopOf(r.area))
   if (r.keywords.length) params.set('kw', r.keywords.join(','))
   params.set('q', q)
   return `/search?${params}`

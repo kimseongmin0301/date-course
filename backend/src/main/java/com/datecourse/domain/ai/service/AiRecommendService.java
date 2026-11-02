@@ -92,7 +92,7 @@ public class AiRecommendService {
         String q = AiParseService.clean(body == null ? null : body.q());
         // 지점 반경(lat 있음) 또는 시도 전체·전국(lat 없이 sido·scene)
         boolean region = body.lat() == null && ((body.sido() != null && !body.sido().isEmpty()) || body.scene() != null);
-        CourseSearchRequest search = region ? null : courses.normalize(body.lat(), body.lng(), body.radius(), body.kw(), 0, body.scene(), body.food());
+        CourseSearchRequest search = region ? null : courses.normalize(body.lat(), body.lng(), body.radius(), body.kw(), 0, body.scene(), body.food(), body.shop());
         CourseQueryService.RegionRequest regionSearch = region ? courses.normalizeRegion(body.sido(), body.scene(), body.kw(), 0, body.food()) : null;
         Set<Long> exclude = body.exclude() == null ? Set.of() : body.exclude().stream().limit(60).collect(Collectors.toSet());
         String key = "ai-rec:" + hash(q) + ":" + (region ? regionSearch.cacheKey() : search.cacheKey()) + ":"

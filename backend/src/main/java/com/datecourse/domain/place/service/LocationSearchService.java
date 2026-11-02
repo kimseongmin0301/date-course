@@ -58,6 +58,7 @@ public class LocationSearchService {
     /**
      * 상권·건물 이름을 네이버 지역 검색으로 ("안양일번가" → "KFC 안양일번가점" 자리). 가게 이름에 검색어가 들어 있는 첫 곳만 쓴다
      * (검색어와 상관없는 가게로 지도를 옮기지 않게). 지도에는 그 둘레 800m. 키가 없거나 하루 한도를 넘었으면 빈 목록.
+     * 이름이 검색어와 똑같으면(지점명은 빼고) 그 가게 자체로 본다 (kind shop, placeId 없음: 우리 데이터에 없는 가게).
      * 우리 데이터·주소로 못 찾았을 때만 부른다 (네이버 하루 한도를 가게 찾기·사진 보기와 나눠 씀)
      */
     public List<LocationResult> searchNamed(String query) {
@@ -69,8 +70,12 @@ public class LocationSearchService {
         }
         try {
             for (NaverLocalSearchClient.Item item : naver.search(q)) {
-                if (PlaceNames.normalize(item.title()).contains(term)) {
+                String title = PlaceNames.normalize(item.title());
+                if (title.contains(term)) {
                     String address = item.roadAddress().isEmpty() ? item.address() : item.roadAddress();
+                    if (title.equals(term) || PlaceNames.normalize(PlaceNames.splitBranch(item.title()).name()).equals(term)) {
+                        return List.of(new LocationResult("shop", item.title(), address, item.lat(), item.lng(), 500, null, categoryOf(item.category())));
+                    }
                     return List.of(new LocationResult("named", parsed.term(), address, item.lat(), item.lng(), 800));
                 }
             }
@@ -175,6 +180,20 @@ public class LocationSearchService {
         String normalized = PlaceNames.normalize(query.term());
         if (normalized.length() >= 2) {
             result.addAll(repository.landmarks(normalized, query.sido(), 5));
+            result.addAll(repository.shops(normalized, query.sido()));
+            if (normalized.length() >= 4 && normalized.endsWith("점")) {
+                // "어니언 성수점" → 이름이 통째로 "어니언 성수"인 가게 (지점명을 이름에 붙여 둔 데이터가 있어서)
+                result.addAll(repository.shops(normalized.substring(0, normalized.length() - 1), query.sido()));
+            }
+        }
+        // "어니언 성수"처럼 체인 이름 + 지점·동네면 그 지점 (끝 낱말을 지점명·주소에서 찾음, "성수점"·"성수동" 모두)
+        String[] words = query.term().split(" ");
+        if (words.length >= 2) {
+            String hint = areaPrefix(words[words.length - 1]).replaceAll("점$", "");
+            String shopName = PlaceNames.normalize(String.join("", java.util.Arrays.copyOf(words, words.length - 1)));
+            if (hint.length() >= 2 && shopName.length() >= 2) {
+                result.addAll(repository.shopBranch(shopName, hint, query.sido()));
+            }
         }
         if (withGeocode && geocoder.configured() && geocodeAllowed()) {
             for (NaverGeocodeClient.Address a : geocoder.geocode(q)) {
@@ -189,6 +208,21 @@ public class LocationSearchService {
         // 같은 이름·같은 동네가 여러 방법으로 찾아지면 하나만
         Set<String> seen = new HashSet<>();
         return result.stream().filter(r -> seen.add(r.kind() + "|" + r.name() + "|" + r.detail())).limit(MAX_RESULTS).toList();
+    }
+
+    /** 네이버 분류("카페,디저트>카페", "음식점>햄버거", "술집>요리주점") → 우리 분류 */
+    static String categoryOf(String naverCategory) {
+        String c = naverCategory == null ? "" : naverCategory;
+        if (c.matches(".*(카페|디저트|베이커리|제과|커피|찻집).*")) {
+            return "cafe";
+        }
+        if (c.matches(".*(술집|주점|호프|포차|이자카야|와인|칵테일|바\\b).*")) {
+            return "bar";
+        }
+        if (c.matches(".*(음식점|한식|양식|일식|중식|분식|뷔페|패스트푸드|레스토랑|요리|식당|고기|해물|햄버거|피자|치킨).*")) {
+            return "restaurant";
+        }
+        return "shop";
     }
 
     /** 오늘(한국 시간) Geocoding 을 몇 번 불렀는지 세어 한도 안이면 true. Redis 가 안 되면 캐시도 안 되므로 부르지 않는다 */

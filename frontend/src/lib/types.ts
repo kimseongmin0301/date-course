@@ -39,6 +39,8 @@ export interface CourseCard {
   steps: StepSummary[]
   /** 고른 메뉴의 가게가 든 코스인지 (메뉴를 안 골랐으면 null) */
   foodMatched?: boolean | null
+  /** 가게 이름으로 찾은 그 가게가 든 코스인지 (가게로 찾지 않았으면 null) */
+  shopMatched?: boolean | null
 }
 
 export interface CourseSearchResponse {
@@ -51,6 +53,8 @@ export interface CourseSearchResponse {
   courses: CourseCard[]
   /** 고른 메뉴의 가게가 든 코스 수 (메뉴를 안 골랐으면 null) */
   foodTotal?: number | null
+  /** 가게 이름으로 찾은 그 가게가 든 코스 수 (가게로 찾지 않았으면 null) */
+  shopTotal?: number | null
 }
 
 export interface Place {
@@ -115,13 +119,17 @@ export interface CourseDetail {
 }
 
 export interface LocationResult {
-  kind: 'area' | 'station' | 'place' | 'address' | 'named'
+  kind: 'area' | 'station' | 'place' | 'address' | 'named' | 'shop'
   name: string
   detail: string | null
   lat: number
   lng: number
   /** 지도에 보여줄 반경(m) 제안 */
   radius: number
+  /** shop: 우리 데이터의 가게 id (네이버에서만 찾은 가게는 null) */
+  placeId?: number | null
+  /** shop: cafe·restaurant·bar·shop·activity */
+  category?: string | null
 }
 
 /** 코스 단계의 근처 대안. distanceMeters: 원래 단계 장소에서의 직선 거리 */

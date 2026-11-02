@@ -21,6 +21,9 @@ public class LocationSearchRepository {
     /** 시도 조건 (null 이면 전국). PostgreSQL 이 null 의 타입을 알게 CAST */
     private static final String IN_SIDO = "(CAST(:sido AS varchar) IS NULL OR sido = CAST(:sido AS varchar))";
 
+    /** 이름이 같은 가게가 이보다 많으면 체인으로 보고 가게로 찾지 않는다 */
+    static final int SHOP_MAX = 3;
+
     private final JdbcClient jdbc;
 
     public LocationSearchRepository(JdbcClient jdbc) {
@@ -76,6 +79,53 @@ public class LocationSearchRepository {
                 .param("limit", limit)
                 .query((rs, n) -> new LocationResult("station", station, rs.getString("sido") + " " + rs.getString("sigungu"),
                         rs.getDouble("lat"), rs.getDouble("lng"), 700))
+                .list();
+    }
+
+    /**
+     * 가게 이름 (정리한 이름이 똑같은 카페·식당·술집·소품샵·놀거리). 같은 이름이 SHOP_MAX 곳보다 많으면 체인이라 빈 목록
+     * ("스타벅스"는 어느 지점인지 모르므로 가게로 보지 않음. "대전 스타벅스"처럼 시도를 붙여도 많으면 마찬가지)
+     */
+    public List<LocationResult> shops(String normalized, String sido) {
+        List<LocationResult> found = jdbc.sql("""
+                SELECT id, name, branch, category, sido, sigungu, road_address, lot_address, lat, lng FROM place
+                WHERE closed_at IS NULL AND category IN ('cafe', 'restaurant', 'bar', 'shop', 'activity') AND normalized_name = :exact AND %s
+                ORDER BY id
+                LIMIT :limit""".formatted(IN_SIDO))
+                .param("exact", normalized)
+                .param("sido", sido)
+                .param("limit", SHOP_MAX + 1)
+                .query((rs, n) -> {
+                    String address = rs.getString("road_address") != null ? rs.getString("road_address") : rs.getString("lot_address");
+                    String detail = address != null ? address : rs.getString("sido") + " " + rs.getString("sigungu");
+                    String name = rs.getString("branch") == null ? rs.getString("name") : rs.getString("name") + " " + rs.getString("branch");
+                    return new LocationResult("shop", name, detail, rs.getDouble("lat"), rs.getDouble("lng"), 500,
+                            rs.getLong("id"), rs.getString("category"));
+                })
+                .list();
+        return found.size() > SHOP_MAX ? List.of() : found;
+    }
+
+    /**
+     * 체인 가게의 한 지점: "어니언 성수" → 이름이 "어니언"이고 지점명이나 주소에 "성수"가 든 곳 (가까운 지점이 여럿이면 지점명이 맞는 것 먼저, 하나만)
+     */
+    public List<LocationResult> shopBranch(String normalized, String hint, String sido) {
+        return jdbc.sql("""
+                SELECT id, name, branch, category, sido, sigungu, road_address, lot_address, lat, lng FROM place
+                WHERE closed_at IS NULL AND category IN ('cafe', 'restaurant', 'bar', 'shop', 'activity') AND normalized_name = :exact AND %s
+                  AND (coalesce(branch, '') LIKE :hint OR coalesce(road_address, '') LIKE :hint OR coalesce(lot_address, '') LIKE :hint)
+                ORDER BY (coalesce(branch, '') LIKE :hint) DESC, id
+                LIMIT 1""".formatted(IN_SIDO))
+                .param("exact", normalized)
+                .param("hint", "%" + hint + "%")
+                .param("sido", sido)
+                .query((rs, n) -> {
+                    String address = rs.getString("road_address") != null ? rs.getString("road_address") : rs.getString("lot_address");
+                    String detail = address != null ? address : rs.getString("sido") + " " + rs.getString("sigungu");
+                    String name = rs.getString("branch") == null ? rs.getString("name") : rs.getString("name") + " " + rs.getString("branch");
+                    return new LocationResult("shop", name, detail, rs.getDouble("lat"), rs.getDouble("lng"), 500,
+                            rs.getLong("id"), rs.getString("category"));
+                })
                 .list();
     }
 

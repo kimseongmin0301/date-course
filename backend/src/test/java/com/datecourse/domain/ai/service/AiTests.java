@@ -57,6 +57,11 @@ class AiTests {
         assertThat(AiParseService.pickArea("도자기", List.of(cafeVillage), List.of())).isNull();
         assertThat(AiParseService.pickArea("광안리", List.of(gwangalli), List.of("부산광역시"))).isEqualTo(gwangalli);
         assertThat(AiParseService.pickArea("광안리", List.of(gwangalli), List.of("제주특별자치도"))).isNull();
+        // 가게는 세 글자 이상인 낱말만 (짧은 낱말이 같은 이름의 가게에 걸리지 않게)
+        var shop = new com.datecourse.domain.place.dto.LocationResult("shop", "래빗홀버거컴퍼니", "서울 광진구", 37.54, 127.07, 500, 7L, "restaurant");
+        assertThat(AiParseService.pickArea("래빗홀버거컴퍼니", List.of(shop), List.of())).isEqualTo(shop);
+        var shortShop = new com.datecourse.domain.place.dto.LocationResult("shop", "목금", "서울 성동구", 37.54, 127.05, 500, 8L, "restaurant");
+        assertThat(AiParseService.pickArea("목금", List.of(shortShop), List.of())).isNull();
     }
 
     @Test

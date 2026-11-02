@@ -10,6 +10,7 @@ const KIND_LABEL: Record<LocationResult['kind'], string> = {
   place: '명소',
   address: '주소',
   named: '장소',
+  shop: '가게',
 }
 
 /**
@@ -67,7 +68,7 @@ export default function LocationSearch({ onPick }: { onPick: (location: Location
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="동네, 명소, 주소"
+          placeholder="동네·명소·가게·주소"
           aria-label="지역 검색"
           maxLength={40}
         />
@@ -76,7 +77,7 @@ export default function LocationSearch({ onPick }: { onPick: (location: Location
         </button>
       </form>
       {/* 예시는 placeholder 에 넣으면 휴대폰에서 잘려서 칸 아래에 작게 (찾은 뒤에는 결과를 보여주므로 숨김) */}
-      {!error && !results && <p className="muted small input-example">예: 성수동, 경복궁, 반석역</p>}
+      {!error && !results && <p className="muted small input-example">예: 성수동, 경복궁, 반석역, 어니언 성수</p>}
       {error && <p className="notice small">{error}</p>}
       {results && results.length === 0 && <p className="muted small">찾지 못했어요. 다른 이름이나 주소로 찾아 주세요.</p>}
       {results && results.length > 1 && (

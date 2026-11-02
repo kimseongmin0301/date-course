@@ -70,11 +70,12 @@ public class CourseQueryService {
 
     /** 입력을 확인하고 캐시 키가 같아지게 정리한다 (키워드 소문자·중복 제거·정렬) */
     public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page) {
-        return normalize(lat, lng, radius, keywords, page, null, null);
+        return normalize(lat, lng, radius, keywords, page, null, null, null);
     }
 
-    /** scene: 풍경 코드(sea·mountain·water), food: 메뉴 코드(Foods), 모르는 코드는 400 */
-    public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page, String scene, String food) {
+    /** scene: 풍경 코드(sea·mountain·water), food: 메뉴 코드(Foods), 모르는 코드는 400. shop: 가게 id (그 가게가 든 코스를 맨 위로) */
+    public CourseSearchRequest normalize(Double lat, Double lng, Integer radius, List<String> keywords, Integer page, String scene, String food,
+                                         Long shop) {
         if (lat == null || lng == null || !Geo.inKorea(lat, lng)) {
             throw CourseException.badRequest("지도에서 국내 지역을 골라 주세요.");
         }
@@ -97,7 +98,10 @@ public class CourseQueryService {
         if (!known.containsAll(codes)) {
             throw CourseException.badRequest("모르는 키워드가 있어요.");
         }
-        return new CourseSearchRequest(lat, lng, r, codes, p, checkScene(scene), checkFood(food));
+        if (shop != null && shop <= 0) {
+            throw CourseException.badRequest("모르는 가게예요.");
+        }
+        return new CourseSearchRequest(lat, lng, r, codes, p, checkScene(scene), checkFood(food), shop);
     }
 
     private static String checkFood(String food) {
@@ -183,6 +187,10 @@ public class CourseQueryService {
     }
 
     private List<CourseCard> cards(List<CourseQueryRepository.Row> rows, List<String> selected, boolean withFood) {
+        return cards(rows, selected, withFood, false);
+    }
+
+    private List<CourseCard> cards(List<CourseQueryRepository.Row> rows, List<String> selected, boolean withFood, boolean withShop) {
         List<Long> ids = rows.stream().map(CourseQueryRepository.Row::id).toList();
         Map<Long, List<CourseQueryRepository.StepPlace>> steps = repository.steps(ids);
         Map<Long, List<String>> keywords = repository.keywords(ids);
@@ -192,7 +200,7 @@ public class CourseQueryService {
                     r.totalMinutes(), (int) Math.round(r.distance()), codes,
                     codes.stream().filter(selected::contains).toList(),
                     steps.getOrDefault(r.id(), List.of()).stream().map(CourseQueryRepository.StepPlace::summary).toList(),
-                    withFood ? r.foodMatch() : null);
+                    withFood ? r.foodMatch() : null, withShop ? r.shopMatch() : null);
         }).toList();
     }
 
@@ -207,15 +215,16 @@ public class CourseQueryService {
         String sceneRegex = scene == null ? null : scene.regex();
         String food = foodRegex(req.food());
         List<CourseQueryRepository.Row> rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, food,
-                size, req.page() * size);
+                req.shop(), size, req.page() * size);
         // 첫 쪽이 비면(근처에 코스가 없는 동네) 넓혀서라도 가까운 코스를 보여준다
         while (rows.isEmpty() && req.page() == 0 && radius < WIDEN_MAX) {
             radius = Math.min(radius * 2, WIDEN_MAX);
-            rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, food, size, 0);
+            rows = repository.search(req.latKey(), req.lngKey(), radius, req.keywords(), sceneRegex, food, req.shop(), size, 0);
         }
-        List<CourseCard> cards = cards(rows, req.keywords(), req.food() != null);
+        List<CourseCard> cards = cards(rows, req.keywords(), req.food() != null, req.shop() != null);
         int total = rows.isEmpty() ? 0 : rows.get(0).total();
-        return new CourseSearchResponse(total, req.page(), size, radius, radius != req.radius(), cards, foodTotal(rows, req.food()));
+        Integer shopTotal = req.shop() == null ? null : rows.isEmpty() ? 0 : rows.get(0).shopTotal();
+        return new CourseSearchResponse(total, req.page(), size, radius, radius != req.radius(), cards, foodTotal(rows, req.food()), shopTotal);
     }
 
     public CourseDetailResponse detail(long id) {

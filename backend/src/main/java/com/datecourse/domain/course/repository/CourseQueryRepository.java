@@ -19,6 +19,7 @@ import com.datecourse.domain.place.service.FranchiseNames;
  *   키워드 일치  40 × (고른 키워드 중 코스에 있는 수 ÷ 고른 수)
  *   가까움       10 × (1 − 거리 ÷ 반경)
  *   메뉴         30 (메뉴를 골랐고 그 메뉴 식당·카페가 든 코스, Foods)
+ *   가게        100 (가게 이름으로 찾았고 그 가게가 든 코스: 맨 위로)
  * 거리는 코스 가운데까지 직선(위경도를 미터로 펴서 계산, 반경 수 km 라 충분히 정확).
  */
 @Repository
@@ -27,6 +28,7 @@ public class CourseQueryRepository {
     public static final double KEYWORD_WEIGHT = 40;
     public static final double DISTANCE_WEIGHT = 10;
     public static final double FOOD_WEIGHT = 30;
+    public static final double SHOP_WEIGHT = 100;
 
     private final JdbcClient jdbc;
     private final FranchiseNames franchises;
@@ -36,13 +38,17 @@ public class CourseQueryRepository {
         this.franchises = franchises;
     }
 
-    /** foodMatch: 고른 메뉴의 가게가 든 코스인지, foodTotal: 그런 코스가 범위 안에 모두 몇 개인지 (메뉴를 안 골랐으면 false·0) */
+    /**
+     * foodMatch: 고른 메뉴의 가게가 든 코스인지, foodTotal: 그런 코스가 범위 안에 모두 몇 개인지 (메뉴를 안 골랐으면 false·0).
+     * shopMatch·shopTotal: 가게 이름으로 찾은 그 가게가 든 코스 (가게가 없으면 false·0)
+     */
     public record Row(long id, String title, String summary, String kind, String sido, String sigungu,
-                      double centerLat, double centerLng, Integer totalMinutes, double distance, int total, boolean foodMatch, int foodTotal) {
+                      double centerLat, double centerLng, Integer totalMinutes, double distance, int total, boolean foodMatch, int foodTotal,
+                      boolean shopMatch, int shopTotal) {
 
         public Row(long id, String title, String summary, String kind, String sido, String sigungu,
                    double centerLat, double centerLng, Integer totalMinutes, double distance, int total) {
-            this(id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distance, total, false, 0);
+            this(id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distance, total, false, 0, false, 0);
         }
     }
 
@@ -76,20 +82,24 @@ public class CourseQueryRepository {
                 CROSS JOIN LATERAL (SELECT CAST(:food AS varchar) IS NOT NULL AND EXISTS (SELECT 1 FROM course_step fs JOIN place fp ON fp.id = fs.place_id
                                     WHERE fs.course_id = c.id AND fp.category IN ('restaurant', 'cafe', 'bar')
                                       AND (fp.name ~ CAST(:food AS varchar) OR coalesce(fp.detail_category, '') ~ CAST(:food AS varchar))) AS hit) f
+                CROSS JOIN LATERAL (SELECT CAST(:shop AS bigint) IS NOT NULL AND EXISTS (SELECT 1 FROM course_step ss
+                                    WHERE ss.course_id = c.id AND ss.place_id = CAST(:shop AS bigint)) AS hit) sh
             """;
 
     /** 반경 안의 숨기지 않은 코스를 순위대로 (total: 반경 안 전체 수) */
     public List<Row> search(double lat, double lng, int radius, List<String> keywords, int limit, int offset) {
-        return search(lat, lng, radius, keywords, null, null, limit, offset);
+        return search(lat, lng, radius, keywords, null, null, null, limit, offset);
     }
 
-    /** sceneRegex: 풍경 조건, foodRegex: 메뉴 (둘 다 null 이면 없음) */
-    public List<Row> search(double lat, double lng, int radius, List<String> keywords, String sceneRegex, String foodRegex, int limit, int offset) {
+    /** sceneRegex: 풍경 조건, foodRegex: 메뉴, shopId: 가게 (모두 null 이면 없음) */
+    public List<Row> search(double lat, double lng, int radius, List<String> keywords, String sceneRegex, String foodRegex, Long shopId,
+                            int limit, int offset) {
         // 키워드를 안 고르면 IN 이 비지 않게 없는 code 를 넣는다 (일치 점수는 0)
         List<String> codes = keywords.isEmpty() ? List.of("-") : keywords;
         return jdbc.sql("""
                 SELECT c.id, c.title, c.summary, c.kind, c.sido, c.sigungu, c.center_lat, c.center_lng, c.total_minutes,
-                       d.dist, count(*) OVER () AS total, f.hit, count(*) FILTER (WHERE f.hit) OVER () AS food_total
+                       d.dist, count(*) OVER () AS total, f.hit, count(*) FILTER (WHERE f.hit) OVER () AS food_total,
+                       sh.hit AS shop_hit, count(*) FILTER (WHERE sh.hit) OVER () AS shop_total
                 FROM course c
                 CROSS JOIN LATERAL (SELECT sqrt(power((c.center_lat - :lat) * 111320, 2)
                                               + power((c.center_lng - :lng) * 111320 * cos(radians(:lat)), 2)) AS dist) d
@@ -102,9 +112,10 @@ public class CourseQueryRepository {
                   AND d.dist <= :radius""" + SCENE_SQL + """
 
                 ORDER BY c.score + :kwWeight * COALESCE(m.matched, 0) / :selected + :distWeight * (1 - d.dist / :radius)
-                         + CASE WHEN f.hit THEN :foodWeight ELSE 0 END DESC, c.id
+                         + CASE WHEN f.hit THEN :foodWeight ELSE 0 END + CASE WHEN sh.hit THEN :shopWeight ELSE 0 END DESC, c.id
                 LIMIT :limit OFFSET :offset""")
                 .param("scene", sceneRegex).param("food", foodRegex).param("foodWeight", FOOD_WEIGHT)
+                .param("shop", shopId).param("shopWeight", SHOP_WEIGHT)
                 .param("lat", lat).param("lng", lng).param("radius", (double) radius)
                 .param("latMin", lat - Geo.latDelta(radius)).param("latMax", lat + Geo.latDelta(radius))
                 .param("lngMin", lng - Geo.lngDelta(radius, lat)).param("lngMax", lng + Geo.lngDelta(radius, lat))
@@ -114,7 +125,7 @@ public class CourseQueryRepository {
                 .query((rs, n) -> new Row(rs.getLong("id"), rs.getString("title"), rs.getString("summary"), rs.getString("kind"),
                         rs.getString("sido"), rs.getString("sigungu"), rs.getDouble("center_lat"), rs.getDouble("center_lng"),
                         (Integer) rs.getObject("total_minutes"), rs.getDouble("dist"), rs.getInt("total"),
-                        rs.getBoolean("hit"), rs.getInt("food_total")))
+                        rs.getBoolean("hit"), rs.getInt("food_total"), rs.getBoolean("shop_hit"), rs.getInt("shop_total")))
                 .list();
     }
 
@@ -136,13 +147,15 @@ public class CourseQueryRepository {
 
                 ORDER BY c.score + :kwWeight * COALESCE(m.matched, 0) / :selected + CASE WHEN f.hit THEN :foodWeight ELSE 0 END DESC, c.id
                 LIMIT :limit OFFSET :offset""")
+                .param("shop", (Long) null)
                 .param("scene", sceneRegex).param("food", foodRegex).param("foodWeight", FOOD_WEIGHT).param("allSido", sidos.isEmpty()).param("sidos", sidos.isEmpty() ? List.of("-") : sidos)
                 .param("codes", codes).param("selected", (double) Math.max(1, keywords.size()))
                 .param("kwWeight", KEYWORD_WEIGHT)
                 .param("limit", limit).param("offset", offset)
                 .query((rs, n) -> new Row(rs.getLong("id"), rs.getString("title"), rs.getString("summary"), rs.getString("kind"),
                         rs.getString("sido"), rs.getString("sigungu"), rs.getDouble("center_lat"), rs.getDouble("center_lng"),
-                        (Integer) rs.getObject("total_minutes"), 0, rs.getInt("total"), rs.getBoolean("hit"), rs.getInt("food_total")))
+                        (Integer) rs.getObject("total_minutes"), 0, rs.getInt("total"), rs.getBoolean("hit"), rs.getInt("food_total"),
+                        false, 0))
                 .list();
     }
 

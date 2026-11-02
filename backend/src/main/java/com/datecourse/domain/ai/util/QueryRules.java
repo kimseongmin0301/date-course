@@ -221,7 +221,7 @@ public final class QueryRules {
         return null;
     }
 
-    static String stripJosa(String word) {
+    public static String stripJosa(String word) {
         for (String j : JOSA) {
             if (word.length() > j.length() + 1 && word.endsWith(j)) {
                 return word.substring(0, word.length() - j.length());

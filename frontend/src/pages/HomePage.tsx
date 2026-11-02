@@ -4,7 +4,9 @@ import AiAsk, { type AiParse } from '../components/AiAsk'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { searchUrlOf } from '../lib/aiSearch'
+import { putShop, shopOf } from '../lib/shop'
 import { AREAS } from '../lib/areas'
+import type { LocationResult } from '../lib/types'
 import { jumpTo, visibleRadius, zoomForRadius } from '../lib/naverMap'
 import { useMap } from '../map/context'
 
@@ -54,6 +56,19 @@ export default function HomePage() {
     if (url) navigate(url, { state: { understood: r.understood, aiUsed: r.aiUsed } })
   }
 
+  /** 지역 검색에서 고른 곳으로 지도를 옮긴다. 가게면 그 가게가 든 코스·넣어 본 코스를 바로 보여준다 */
+  function pickLocation(l: LocationResult) {
+    const shop = shopOf(l)
+    if (!shop) {
+      moveTo(l.lat, l.lng, l.radius)
+      return
+    }
+    const params = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: '1500' })
+    if (keywords.length) params.set('kw', keywords.join(','))
+    putShop(params, shop)
+    navigate(`/search?${params}`)
+  }
+
   function search() {
     if (!map) return
     const c = map.getCenter()
@@ -76,7 +91,7 @@ export default function HomePage() {
       <AiAsk onParsed={applyParsed} />
 
       <h2 className="section-title">지역</h2>
-      <LocationSearch onPick={(l) => moveTo(l.lat, l.lng, l.radius)} />
+      <LocationSearch onPick={pickLocation} />
       <div className="chips">
         <button type="button" className="chip" onClick={nearMe} disabled={!map || locating}>
           {locating ? '찾는 중…' : '📍 내 주변'}

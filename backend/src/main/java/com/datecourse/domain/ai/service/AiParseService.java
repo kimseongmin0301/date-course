@@ -41,6 +41,8 @@ public class AiParseService {
     static final int MAX_KEYWORDS = 3;
     /** 네이버 지역 검색으로 확인해 볼 낱말 수 */
     static final int NAMED_TRIES = 2;
+    /** 가게 + 지점으로 붙여 볼 이웃 낱말 쌍 수 (문장 앞쪽만) */
+    static final int PAIR_TRIES = 4;
 
     private final LocationSearchService locations;
     private final KeywordService keywords;
@@ -78,7 +80,19 @@ public class AiParseService {
         QueryRules.Parsed rules = QueryRules.parse(q);
         LocationResult area = null;
         List<String> sidos = new ArrayList<>(rules.sidos());
-        for (String candidate : rules.areaCandidates()) {
+        // 체인 가게 + 지점·동네("어니언 성수에서")는 두 낱말을 붙여야 그 지점이라, 이웃한 두 낱말을 먼저 가게로만 본다
+        String[] words = q.split(" ");
+        for (int i = 0; i + 1 < words.length && i < PAIR_TRIES; i++) {
+            String pair = QueryRules.stripJosa(words[i]) + " " + QueryRules.stripJosa(words[i + 1]);
+            area = locations.searchLocal(pair).stream()
+                    .filter(r -> "shop".equals(r.kind()) && r.placeId() != null)
+                    .filter(r -> pickArea(pair.replace(" ", ""), List.of(r), sidos) != null)
+                    .findFirst().orElse(null);
+            if (area != null) {
+                break;
+            }
+        }
+        for (String candidate : area != null ? List.<String>of() : rules.areaCandidates()) {
             area = pickArea(candidate, locations.searchLocal(candidate), sidos);
             if (area != null) {
                 break;
@@ -171,6 +185,8 @@ public class AiParseService {
         for (LocationResult r : found) {
             String name = r.name().replace(" ", "");
             boolean placeOk = !"place".equals(r.kind()) || name.equals(word) || (word.length() >= 3 && name.startsWith(word));
+            // 가게는 세 글자 이상만 ("목금" 같은 짧은 가게 이름이 문장의 낱말에 걸리지 않게. 검색창에서는 두 글자도 찾음)
+            placeOk = placeOk && (!"shop".equals(r.kind()) || word.length() >= 3);
             boolean inSido = sidos.isEmpty() || sidos.stream().anyMatch(sd -> {
                 String text = r.name() + " " + (r.detail() == null ? "" : r.detail());
                 return text.contains(sd) || text.contains(sd.substring(0, 2));

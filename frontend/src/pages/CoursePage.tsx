@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { foodOf } from '../lib/foods'
+import { hasShop, naverShopPlace, shopFromParams, withShop } from '../lib/shop'
 import { CATEGORY_LABEL, formatDistance, formatMinutes, ROLE_LABEL } from '../lib/format'
 import { loadKeywords } from '../lib/keywords'
 import { altIcon, distanceMeters, jumpTo, stepIcon } from '../lib/naverMap'
@@ -87,6 +88,8 @@ export default function CoursePage() {
   /** AI 검색에서 고른 메뉴 (코스 순위에서 ?food=burger 로 넘어옴): 그 메뉴 가게를 넣는 지름길을 보여준다 */
   const [searchParams] = useSearchParams()
   const foodInfo = foodOf(searchParams.get('food'))
+  /** 가게 이름으로 찾아 "넣어 보기"로 왔으면 그 가게 (처음 열 때 같은 종류 단계를 그 가게로 바꾼다) */
+  const [shopNote, setShopNote] = useState<string | null>(null)
   const navigate = useNavigate()
   const { map } = useMap()
   const [course, setCourse] = useState<CourseDetail | null>(null)
@@ -121,12 +124,31 @@ export default function CoursePage() {
         const fromServer = savedPlan ? fromSaved(savedPlan, c) : null
         if (fromServer && savedPlan) setSaved({ plan: fromServer, at: savedPlan.savedAt })
         // 저장 안 한 고친 내용 → 저장한 일정 → 원래 코스 순서로
-        setPlan(loadDraft(id, c) ?? fromServer ?? initialPlan(c))
+        const base = loadDraft(id, c) ?? fromServer ?? initialPlan(c)
+        setPlan(base)
+        const shop = shopFromParams(searchParams)
+        if (!shop || hasShop(base, shop)) return
+        // 우리 데이터의 가게면 장소 정보(주소·사진·고른 이유)를 받아 오고, 네이버에서만 찾은 가게면 이름·주소·좌표로
+        const found = shop.id
+          ? api<AlternativeResponse[]>(`/places/nearby?lat=${shop.lat}&lng=${shop.lng}&q=${encodeURIComponent(shop.name)}`)
+              .then((list) => list.find((a) => a.place.id === shop.id) ?? null)
+              .catch(() => null)
+          : Promise.resolve(null)
+        found.then((a) => {
+          if (cancelled) return
+          const place = a?.place ?? naverShopPlace(shop)
+          const next = withShop(base, place, a?.reasons ?? ['검색한 가게'], shop.id ? place.category : shop.category)
+          setPlan(next)
+          saveDraft(id, next)
+          setShopNote(place.name)
+        })
       })
       .catch((e: Error) => !cancelled && setError(e.message))
     return () => {
       cancelled = true
     }
+    // 가게는 코스를 열 때 한 번만 넣는다 (주소의 다른 값이 바뀌어도 다시 넣지 않게)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const steps = useMemo(() => (plan ? timeline(plan) : []), [plan])
@@ -646,6 +668,21 @@ export default function CoursePage() {
         </p>
       )}
 
+      {shopNote && (
+        <p className="notice-soft">
+          📍 <strong>{shopNote}</strong>: 이 가게를 넣은 일정이에요. 마음에 들면 저장하고, 아니면{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              reset()
+              setShopNote(null)
+            }}
+          >
+            원래 코스로
+          </button>
+        </p>
+      )}
       {foodInfo && (
         <p className="notice-soft">
           🍽 {foodInfo.name} 가게를 넣고 싶나요?{' '}

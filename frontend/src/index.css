@@ -451,6 +451,12 @@ button:disabled {
   font-weight: 600;
 }
 
+/* 가게 이름으로 찾았을 때 "그 가게 넣어 보기" (자세히 보기 아래 줄) */
+.shop-try {
+  display: block;
+  margin-top: 4px;
+}
+
 .empty {
   padding: 24px 0;
 }

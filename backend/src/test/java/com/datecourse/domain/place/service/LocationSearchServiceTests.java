@@ -153,4 +153,35 @@ class LocationSearchServiceTests {
         given(naver.search("안양일번가")).willThrow(PlaceException.searchUnavailable());
         assertThat(service.searchNamed("안양일번가")).isEmpty();
     }
+
+    @Test
+    void 네이버에서_이름이_똑같은_가게는_가게로() {
+        given(naver.search("래빗홀버거컴퍼니")).willReturn(List.of(
+                new NaverLocalSearchClient.Item("래빗홀버거컴퍼니 건대점", "음식점>햄버거", "서울특별시 광진구 화양동 1", "서울특별시 광진구 능동로 1", 37.54, 127.07)));
+
+        assertThat(service.searchNamed("래빗홀버거컴퍼니")).singleElement().satisfies(r -> {
+            assertThat(r.kind()).isEqualTo("shop");
+            assertThat(r.placeId()).isNull();
+            assertThat(r.category()).isEqualTo("restaurant");
+        });
+    }
+
+    @Test
+    void 네이버_분류를_우리_분류로() {
+        assertThat(LocationSearchService.categoryOf("카페,디저트>카페")).isEqualTo("cafe");
+        assertThat(LocationSearchService.categoryOf("술집>요리주점")).isEqualTo("bar");
+        assertThat(LocationSearchService.categoryOf("음식점>햄버거")).isEqualTo("restaurant");
+        assertThat(LocationSearchService.categoryOf("쇼핑,유통>문구,팬시용품")).isEqualTo("shop");
+    }
+
+    @Test
+    void 체인_가게는_지점이나_동네를_붙이면_그_지점() {
+        LocationResult onion = new LocationResult("shop", "어니언 성수", "서울특별시 성동구 아차산로9길 8", 37.54, 127.05, 500, 418L, "cafe");
+        given(repository.shops("어니언성수", null)).willReturn(List.of(onion));
+        assertThat(service.search("어니언 성수점")).contains(onion);   // 이름에 지점명을 붙여 둔 가게
+
+        LocationResult banseok = new LocationResult("shop", "스타벅스 대전반석역", "대전광역시 유성구", 36.39, 127.31, 500, 576332L, "cafe");
+        given(repository.shopBranch("스타벅스", "반석", null)).willReturn(List.of(banseok));
+        assertThat(service.search("스타벅스 반석")).contains(banseok);   // 지점명·주소에서 찾음
+    }
 }
