@@ -53,8 +53,21 @@ public class CourseQueryRepository {
         }
     }
 
+    /**
+     * 풍경(바다·산·물가) 조건: 관광명소·문화시설·카페 단계의 이름이나 업종이 이 정규식에 맞는 코스만. null 이면 조건 없음.
+     * 식당·소품샵 이름은 풍경과 상관없어서 보지 않는다 (익산의 횟집 "동해안"이 바다 코스로 잡힌 적이 있음)
+     */
+    private static final String SCENE_SQL = " AND (CAST(:scene AS varchar) IS NULL OR EXISTS (SELECT 1 FROM course_step s JOIN place p ON p.id = s.place_id"
+            + " WHERE s.course_id = c.id AND p.category IN ('attraction', 'culture', 'cafe')"
+            + " AND (p.name ~ CAST(:scene AS varchar) OR coalesce(p.detail_category, '') ~ CAST(:scene AS varchar))))";
+
     /** 반경 안의 숨기지 않은 코스를 순위대로 (total: 반경 안 전체 수) */
     public List<Row> search(double lat, double lng, int radius, List<String> keywords, int limit, int offset) {
+        return search(lat, lng, radius, keywords, null, limit, offset);
+    }
+
+    /** sceneRegex: 풍경 조건 (null 이면 없음) */
+    public List<Row> search(double lat, double lng, int radius, List<String> keywords, String sceneRegex, int limit, int offset) {
         // 키워드를 안 고르면 IN 이 비지 않게 없는 code 를 넣는다 (일치 점수는 0)
         List<String> codes = keywords.isEmpty() ? List.of("-") : keywords;
         return jdbc.sql("""
@@ -68,9 +81,11 @@ public class CourseQueryRepository {
                            WHERE k.code IN (:codes) GROUP BY ck.course_id) m ON m.course_id = c.id
                 WHERE NOT c.hidden
                   AND c.center_lat BETWEEN :latMin AND :latMax AND c.center_lng BETWEEN :lngMin AND :lngMax
-                  AND d.dist <= :radius
+                  AND d.dist <= :radius""" + SCENE_SQL + """
+
                 ORDER BY c.score + :kwWeight * COALESCE(m.matched, 0) / :selected + :distWeight * (1 - d.dist / :radius) DESC, c.id
                 LIMIT :limit OFFSET :offset""")
+                .param("scene", sceneRegex)
                 .param("lat", lat).param("lng", lng).param("radius", (double) radius)
                 .param("latMin", lat - Geo.latDelta(radius)).param("latMax", lat + Geo.latDelta(radius))
                 .param("lngMin", lng - Geo.lngDelta(radius, lat)).param("lngMax", lng + Geo.lngDelta(radius, lat))
@@ -80,6 +95,33 @@ public class CourseQueryRepository {
                 .query((rs, n) -> new Row(rs.getLong("id"), rs.getString("title"), rs.getString("summary"), rs.getString("kind"),
                         rs.getString("sido"), rs.getString("sigungu"), rs.getDouble("center_lat"), rs.getDouble("center_lng"),
                         (Integer) rs.getObject("total_minutes"), rs.getDouble("dist"), rs.getInt("total")))
+                .list();
+    }
+
+    /**
+     * 시도 전체나 전국에서 순위대로 (말로 찾기: "부산 바닷가", "바다 가고 싶어"). 거리는 없으므로 코스 점수 + 키워드 일치로만.
+     * sidos(비면 전국)와 sceneRegex 중 하나는 있어야 한다 (둘 다 없으면 전국 전체라 의미가 없음). "전라도"·"서해"처럼 시도 여럿도 된다
+     */
+    public List<Row> searchRegion(List<String> sidos, List<String> keywords, String sceneRegex, int limit, int offset) {
+        List<String> codes = keywords.isEmpty() ? List.of("-") : keywords;
+        return jdbc.sql("""
+                SELECT c.id, c.title, c.summary, c.kind, c.sido, c.sigungu, c.center_lat, c.center_lng, c.total_minutes,
+                       0.0 AS dist, count(*) OVER () AS total
+                FROM course c
+                LEFT JOIN (SELECT ck.course_id, count(*) AS matched
+                           FROM course_keyword ck JOIN keyword k ON k.id = ck.keyword_id
+                           WHERE k.code IN (:codes) GROUP BY ck.course_id) m ON m.course_id = c.id
+                WHERE NOT c.hidden AND (:allSido OR c.sido IN (:sidos))""" + SCENE_SQL + """
+
+                ORDER BY c.score + :kwWeight * COALESCE(m.matched, 0) / :selected DESC, c.id
+                LIMIT :limit OFFSET :offset""")
+                .param("scene", sceneRegex).param("allSido", sidos.isEmpty()).param("sidos", sidos.isEmpty() ? List.of("-") : sidos)
+                .param("codes", codes).param("selected", (double) Math.max(1, keywords.size()))
+                .param("kwWeight", KEYWORD_WEIGHT)
+                .param("limit", limit).param("offset", offset)
+                .query((rs, n) -> new Row(rs.getLong("id"), rs.getString("title"), rs.getString("summary"), rs.getString("kind"),
+                        rs.getString("sido"), rs.getString("sigungu"), rs.getDouble("center_lat"), rs.getDouble("center_lng"),
+                        (Integer) rs.getObject("total_minutes"), 0, rs.getInt("total")))
                 .list();
     }
 

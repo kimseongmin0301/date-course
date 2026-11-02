@@ -12,7 +12,18 @@ import type { CourseCard, CourseSearchResponse, LocationResult } from '../lib/ty
 import { useMap } from '../map/context'
 
 // 검색 결과: 왼쪽 코스 순위 카드, 지도에는 코스 가운데 순위 핀. 카드를 고르면 그 코스 단계와 동선을 그린다
-// 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy
+// 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy (지점 반경)
+//         /search?sido=부산광역시&scene=sea&q=… (말로 찾기: 시도 전체), /search?scene=sea (풍경만: 전국)
+const SCENE_LABEL: Record<string, string> = { sea: '바다', mountain: '산·숲', water: '강·호수' }
+
+/** "부산광역시" → 부산 (목록에 짧게) */
+function shortSido(sido: string): string {
+  const short: Record<string, string> = {
+    전남광주통합특별시: '전남·광주', 전북특별자치도: '전북', 강원특별자치도: '강원', 제주특별자치도: '제주', 세종특별자치시: '세종',
+    충청북도: '충북', 충청남도: '충남', 경상북도: '경북', 경상남도: '경남', 경기도: '경기',
+  }
+  return short[sido] ?? sido.replace(/(특별시|광역시)$/, '')
+}
 export default function SearchPage() {
   const [params, setParams] = useSearchParams()
   // 근처에 코스가 없어 반경을 넓혔으면 원래 반경을 기억해 안내한다
@@ -26,11 +37,17 @@ export default function SearchPage() {
   const lat = Number(params.get('lat'))
   const lng = Number(params.get('lng'))
   const radius = Number(params.get('r') ?? 3000)
+  /** 말로 찾기의 풍경(바다·산·물가)과 시도 범위. lat 없이 sido·scene 만 있으면 시도 전체·전국에서 찾는다 */
+  const scene = params.get('scene')
+  const sidoParam = params.get('sido')
+  const sidos = useMemo(() => (sidoParam ? sidoParam.split(',').filter(Boolean) : []), [sidoParam])
   const kwParam = params.get('kw')
   /** 홈의 말로 찾기 문장 (있으면 AI 추천을 보여줌) */
   const ask = params.get('q')
   const keywords = useMemo(() => parseKeywords(kwParam), [kwParam])
-  const valid = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+  const point = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
+  const region = !point && (sidos.length > 0 || !!scene)
+  const valid = point || region
 
   const [courses, setCourses] = useState<CourseCard[]>([])
   const [total, setTotal] = useState(0)
@@ -57,9 +74,7 @@ export default function SearchPage() {
     setLoading(true)
     setError(null)
     setSelected(null)
-    const q = new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), page: '0' })
-    if (keywords.length) q.set('kw', keywords.join(','))
-    api<CourseSearchResponse>(`/courses?${q}`)
+    api<CourseSearchResponse>(listUrl(0))
       .then((res) => {
         if (cancelled) return
         if (res.widened) {
@@ -83,14 +98,25 @@ export default function SearchPage() {
     return () => {
       cancelled = true
     }
-  }, [valid, lat, lng, radius, keywords, setParams])
+    // listUrl 은 아래 조건으로만 바뀐다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valid, lat, lng, radius, keywords, scene, sidoParam, setParams])
+
+  /** 코스 목록 주소: 지점 반경(/courses) 또는 시도 전체·전국(/courses/region) */
+  function listUrl(pageNo: number) {
+    const q = region
+      ? new URLSearchParams({ page: String(pageNo) })
+      : new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), page: String(pageNo) })
+    if (region && sidos.length) q.set('sido', sidos.join(','))
+    if (scene) q.set('scene', scene)
+    if (keywords.length) q.set('kw', keywords.join(','))
+    return region ? `/courses/region?${q}` : `/courses?${q}`
+  }
 
   function loadMore() {
     const next = page + 1
-    const q = new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), page: String(next) })
-    if (keywords.length) q.set('kw', keywords.join(','))
     setLoading(true)
-    api<CourseSearchResponse>(`/courses?${q}`)
+    api<CourseSearchResponse>(listUrl(next))
       .then((res) => {
         setCourses((prev) => [...prev, ...res.courses])
         setPage(next)
@@ -101,7 +127,16 @@ export default function SearchPage() {
 
   // 지도를 검색한 곳으로 (이미 거기 있으면 그대로)
   useEffect(() => {
-    if (!map || !valid) return
+    if (!map || !region || courses.length === 0) return
+    const first = new naver.maps.LatLng(courses[0].centerLat, courses[0].centerLng)
+    const bounds = courses.reduce((b, c) => b.extend(new naver.maps.LatLng(c.centerLat, c.centerLng)), new naver.maps.LatLngBounds(first, first))
+    programmatic.current = true
+    map.fitBounds(bounds, { top: 60, right: 60, bottom: 60, left: 60 })
+    setMoved(false)
+  }, [map, region, courses])
+
+  useEffect(() => {
+    if (!map || !point) return
     const c = map.getCenter()
     if (distanceMeters(c.lat(), c.lng(), lat, lng) > 50 || Math.abs(visibleRadius(map) - radius) > radius * 0.5) {
       programmatic.current = true
@@ -109,14 +144,18 @@ export default function SearchPage() {
       map.setZoom(zoomForRadius(radius))
     }
     setMoved(false)
-  }, [map, valid, lat, lng, radius])
+  }, [map, point, lat, lng, radius])
 
-  // 지도를 꽤 옮기면 "이 지역에서 다시 찾기"
+  // 지도를 꽤 옮기면 "이 지역에서 다시 찾기" (시도 전체·전국 목록에서는 끄지 않고, 옮기면 그 지도에서 다시 찾게)
   useEffect(() => {
     if (!map || !valid) return
     const listener = naver.maps.Event.addListener(map, 'idle', () => {
       if (programmatic.current) {
         programmatic.current = false
+        return
+      }
+      if (region) {
+        setMoved(true)
         return
       }
       const c = map.getCenter()
@@ -125,7 +164,7 @@ export default function SearchPage() {
       setMoved(far || zoomed)
     })
     return () => naver.maps.Event.removeListener(listener)
-  }, [map, valid, lat, lng, radius])
+  }, [map, valid, region, lat, lng, radius])
 
   // 순위 핀 (고른 코스는 그 코스의 단계 핀과 동선)
   useEffect(() => {
@@ -185,6 +224,7 @@ export default function SearchPage() {
     // 명소·주소는 반경이 좁으므로 코스는 1.5km 이상에서 찾는다 (지도는 검색 위치로 맞춘 뒤 반경에 맞게 넓어짐)
     const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(Math.max(1500, l.radius)) })
     if (keywords.length) next.set('kw', keywords.join(','))
+    if (scene) next.set('scene', scene)
     if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
@@ -194,7 +234,7 @@ export default function SearchPage() {
   // 고른 코스를 풀고 검색한 넓이로 돌아가 모든 순위 핀을 본다
   function showAll() {
     setSelected(null)
-    if (map) {
+    if (map && point) {
       programmatic.current = true
       jumpTo(map, lat, lng, zoomForRadius(radius))
     }
@@ -203,8 +243,9 @@ export default function SearchPage() {
   function searchHere() {
     if (!map) return
     const c = map.getCenter()
-    const next = new URLSearchParams({ lat: c.lat().toFixed(5), lng: c.lng().toFixed(5), r: String(visibleRadius(map)) })
+    const next = new URLSearchParams({ lat: c.lat().toFixed(5), lng: c.lng().toFixed(5), r: String(Math.min(20000, visibleRadius(map))) })
     if (keywords.length) next.set('kw', keywords.join(','))
+    if (scene) next.set('scene', scene)
     if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
@@ -223,7 +264,10 @@ export default function SearchPage() {
     <section className="search">
       <div className="search-head">
         <h1>
-          코스 순위 <span className="muted small">반경 {formatDistance(radius)} · {total}개</span>
+          코스 순위{' '}
+          <span className="muted small">
+            {region ? `${sidos.length ? sidos.map(shortSido).join('·') : '전국'}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}` : `반경 ${formatDistance(radius)}${scene ? ` · ${SCENE_LABEL[scene] ?? scene}` : ''}`} · {total}개
+          </span>
         </h1>
         <LocationSearch onPick={searchAt} />
         <KeywordPicker value={keywords} onChange={changeKeywords} compact />
@@ -237,12 +281,14 @@ export default function SearchPage() {
       )}
       {ask && !loading && courses.length > 0 && (
         <AiPicks
-          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}`}
+          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}`}
           q={ask}
-          lat={lat}
-          lng={lng}
-          radius={radius}
+          lat={point ? lat : null}
+          lng={point ? lng : null}
+          radius={point ? radius : null}
           keywords={keywords}
+          sido={sidos}
+          scene={scene}
           onShow={(id) => {
             if (!courses.some((c) => c.id === id)) return false
             setSelected(id)
@@ -258,7 +304,7 @@ export default function SearchPage() {
         </p>
       )}
       {!loading && !error && courses.length === 0 && (
-        <p className="empty muted">이 근처에는 아직 코스가 없어요. 지도를 넓히거나 옮겨서 다시 찾아 주세요.</p>
+        <p className="empty muted">{region ? '이 조건에 맞는 코스가 아직 없어요. 지역이나 키워드를 바꿔 주세요.' : '이 근처에는 아직 코스가 없어요. 지도를 넓히거나 옮겨서 다시 찾아 주세요.'}</p>
       )}
 
       <ol className="course-list">
@@ -277,7 +323,7 @@ export default function SearchPage() {
               <h2>{c.title}</h2>
               <p className="steps-line">{c.steps.map((s) => s.name).join(' → ')}</p>
               <p className="meta muted">
-                {[c.sigungu, formatMinutes(c.totalMinutes), `지도 가운데에서 ${formatDistance(c.distanceMeters)}`, c.kind === 'curated' ? '추천 코스' : null]
+                {[region ? `${shortSido(c.sido)} ${c.sigungu ?? ''}`.trim() : c.sigungu, formatMinutes(c.totalMinutes), region ? null : `지도 가운데에서 ${formatDistance(c.distanceMeters)}`, c.kind === 'curated' ? '추천 코스' : null]
                   .filter(Boolean)
                   .join(' · ')}
               </p>

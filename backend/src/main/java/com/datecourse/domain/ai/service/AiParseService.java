@@ -14,6 +14,7 @@ import com.datecourse.domain.ai.client.OllamaClient;
 import com.datecourse.domain.ai.dto.AiParseResponse;
 import com.datecourse.domain.ai.exception.AiException;
 import com.datecourse.domain.ai.util.QueryRules;
+import com.datecourse.domain.course.util.Scenes;
 import com.datecourse.domain.keyword.dto.KeywordResponse;
 import com.datecourse.domain.keyword.service.KeywordService;
 import com.datecourse.domain.place.dto.LocationResult;
@@ -79,13 +80,17 @@ public class AiParseService {
                 break;
             }
         }
+        List<String> sidos = new ArrayList<>(rules.sidos());
+        String scene = rules.scene();
         Set<String> moods = new LinkedHashSet<>(rules.keywords());
         String setting = rules.setting();
         String budget = rules.budget();
         boolean aiUsed = false;
         boolean settled = true;
 
-        if (area == null || moods.isEmpty()) {
+        // 지역(지점·시도·풍경 중 하나)이나 분위기(풍경이 있으면 그것으로 충분)를 못 알아들었을 때만 AI 에게
+        boolean needArea = area == null && sidos.isEmpty() && scene == null;
+        if (needArea || (moods.isEmpty() && scene == null)) {
             JsonNode ai = null;
             try {
                 ai = gate.call(ip, () -> ollama.generateJson(prompt(q), 160));
@@ -96,7 +101,11 @@ public class AiParseService {
                 settled = !ollama.enabled();   // 바빠서 못 불렀으면 짧게만 캐시
             } else {
                 Accepted accepted = accept(ai, q, keywordsByName());
-                if (area == null && accepted.area() != null) {
+                String aiSido = accepted.area() == null ? null : QueryRules.sidoOf(accepted.area().replace(" ", ""));
+                if (aiSido != null && sidos.isEmpty() && area == null) {
+                    sidos.add(aiSido);   // AI 가 "부산"을 지역으로 짚어도 지점(부산진구)이 아니라 시도 전체
+                    aiUsed = true;
+                } else if (area == null && accepted.area() != null) {
                     List<LocationResult> found = locations.searchLocal(accepted.area());
                     if (found.isEmpty()) {
                         found = locations.search(accepted.area());
@@ -133,7 +142,8 @@ public class AiParseService {
                 codes.add(m);
             }
         }
-        return new Cached(new AiParseResponse(area, codes, aiUsed, understood(area, codes)), settled);
+        return new Cached(new AiParseResponse(area, codes, aiUsed, understood(area, sidos, scene, rules.rainy(), codes),
+                List.copyOf(sidos), scene, rules.rainy()), settled);
     }
 
     private static final java.util.regex.Pattern SETTING_HINT = java.util.regex.Pattern.compile("실내|실외|야외|밖|안에서|날씨|비|눈|덥|더운|추운|춥|햇");
@@ -175,12 +185,42 @@ public class AiParseService {
         return map;
     }
 
-    String understood(LocationResult area, List<String> codes) {
+    String understood(LocationResult area, List<String> sidos, String scene, boolean rainy, List<String> codes) {
         Map<String, String> names = keywords.all().stream().collect(Collectors.toMap(KeywordResponse::code, KeywordResponse::name, (a, b) -> a));
         List<String> parts = new ArrayList<>();
-        parts.add(area == null ? "지금 지도에서" : area.name());
+        if (area != null) {
+            parts.add(area.name());
+        } else if (!sidos.isEmpty()) {
+            parts.add(sidos.stream().map(AiParseService::shortSido).collect(Collectors.joining("·")));
+        } else {
+            parts.add(scene != null ? "전국" : "지금 지도에서");
+        }
+        Scenes.Scene s = Scenes.of(scene);
+        if (s != null) {
+            parts.add(s.name());
+        }
+        if (rainy) {
+            parts.add("비 오는 날");
+        }
         codes.stream().map(c -> names.getOrDefault(c, c)).forEach(parts::add);
         return String.join(" · ", parts);
+    }
+
+    /** "부산광역시" → 부산, "전남광주통합특별시" → 전남·광주 (화면에 짧게) */
+    static String shortSido(String sido) {
+        return switch (sido) {
+            case "전남광주통합특별시" -> "전남·광주";
+            case "전북특별자치도" -> "전북";
+            case "강원특별자치도" -> "강원";
+            case "제주특별자치도" -> "제주";
+            case "세종특별자치시" -> "세종";
+            case "충청북도" -> "충북";
+            case "충청남도" -> "충남";
+            case "경상북도" -> "경북";
+            case "경상남도" -> "경남";
+            case "경기도" -> "경기";
+            default -> sido.replaceAll("(특별시|광역시)$", "");
+        };
     }
 
     static String prompt(String q) {

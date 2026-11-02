@@ -51,6 +51,7 @@ public class AiRecommendService {
     static final int MAX_PICKS = 3;
     static final int REASON_MAX = 60;
     static final String BUSY = "지금은 AI 가 바빠서 순위 위에서 골랐어요. 잠시 뒤에 다시 눌러 보세요.";
+    static final String UNUSABLE = "AI 답을 쓸 수 없어서 순위 위에서 골랐어요. 다시 추천을 눌러 보세요.";
     /** 후보에 없는 가격·시간·거리 ("2만원", "10시", "300m") */
     private static final Pattern INVENTED = Pattern.compile("\\d[\\d,.]*\\s*(천|만)?\\s*(원|시|분|%|km|m\\b)");
 
@@ -77,29 +78,40 @@ public class AiRecommendService {
 
     /** 후보 하나 (AI 에게 보여줄 실제 정보) */
     record Candidate(long id, String title, String sigungu, Integer minutes, List<String> steps, List<String> stepNames,
-                     List<String> keywordNames, boolean inRanking) {
+                     List<String> keywordNames, boolean inRanking, String area) {
+
+        Candidate(long id, String title, String sigungu, Integer minutes, List<String> steps, List<String> stepNames,
+                  List<String> keywordNames, boolean inRanking) {
+            this(id, title, sigungu, minutes, steps, stepNames, keywordNames, inRanking, sigungu);
+        }
     }
 
     public AiRecommendResponse recommend(AiRecommendRequest body, String ip) {
         String q = AiParseService.clean(body == null ? null : body.q());
-        CourseSearchRequest search = courses.normalize(body.lat(), body.lng(), body.radius(), body.kw(), 0);
+        // 지점 반경(lat 있음) 또는 시도 전체·전국(lat 없이 sido·scene)
+        boolean region = body.lat() == null && ((body.sido() != null && !body.sido().isEmpty()) || body.scene() != null);
+        CourseSearchRequest search = region ? null : courses.normalize(body.lat(), body.lng(), body.radius(), body.kw(), 0, body.scene());
+        CourseQueryService.RegionRequest regionSearch = region ? courses.normalizeRegion(body.sido(), body.scene(), body.kw(), 0) : null;
         Set<Long> exclude = body.exclude() == null ? Set.of() : body.exclude().stream().limit(60).collect(Collectors.toSet());
-        String key = "ai-rec:" + hash(q) + ":" + search.cacheKey() + ":" + exclude.stream().sorted().map(String::valueOf).collect(Collectors.joining(","));
+        String key = "ai-rec:" + hash(q) + ":" + (region ? regionSearch.cacheKey() : search.cacheKey()) + ":"
+                + exclude.stream().sorted().map(String::valueOf).collect(Collectors.joining(","));
         return cache.getOrLoad(key, (Cached c) -> c.settled() ? Duration.ofDays(1) : Duration.ofMinutes(5),
                 new TypeReference<Cached>() { }, () -> {
-                    AiRecommendResponse r = load(q, search, exclude, ip);
+                    AiRecommendResponse r = load(q, search, regionSearch, exclude, ip);
                     return new Cached(r, r.ai() || !ollama.enabled());
                 }).response();
     }
 
-    private AiRecommendResponse load(String q, CourseSearchRequest search, Set<Long> exclude, String ip) {
+    private AiRecommendResponse load(String q, CourseSearchRequest search, CourseQueryService.RegionRequest regionSearch,
+                                     Set<Long> exclude, String ip) {
         Map<String, String> names = keywords.all().stream().collect(Collectors.toMap(KeywordResponse::code, KeywordResponse::name, (a, b) -> a));
-        CourseSearchResponse ranked = courses.search(search);
+        CourseSearchResponse ranked = search != null ? courses.search(search) : courses.searchRegion(regionSearch);
         List<Candidate> ranking = ranked.courses().stream().filter(c -> !exclude.contains(c.id())).map(c -> fromCard(c, names)).toList();
 
         // 요청 문장과 비슷한 코스 (지금 순위 첫 쪽에 없는 것만)
         List<Candidate> similar = new ArrayList<>();
-        if (embeddings.ready()) {
+        // 비슷한 코스는 지점 반경일 때만 (시도 전체·전국이면 풍경·시도 조건을 지키려고 순위 후보만 쓴다)
+        if (search != null && embeddings.ready()) {
             List<float[]> qv = ollama.embed(List.of(q));
             if (!qv.isEmpty()) {
                 Set<Long> skip = new LinkedHashSet<>(exclude);
@@ -123,12 +135,21 @@ public class AiRecommendService {
         // 너무 자주 누르면 AiGate 가 429 를 던져 그대로 알린다
         JsonNode answer = gate.call(ip, () -> ollama.generateJson(prompt(q, candidates), 220));
         List<AiRecommendResponse.Pick> picks = answer == null ? List.of() : accept(answer, candidates);
-        log.info("AI 추천: 후보 {}개(비슷한 코스 {}), {}", candidates.size(), similar.size(), picks.isEmpty() ? "순위로 대신" : "AI " + picks.size() + "개");
+        // 문장은 남기지 않고 답의 모양만 (바쁨과 쓸 수 없는 답을 나눠 보려고)
+        log.info("AI 추천: 후보 {}개(비슷한 코스 {}), {}", candidates.size(), similar.size(),
+                answer == null ? "바빠서 순위로" : picks.isEmpty() ? "쓸 수 없는 답(키 " + fieldNames(answer) + ", picks " + answer.path("picks").size() + "개)이라 순위로"
+                        : "AI " + picks.size() + "개");
         if (picks.isEmpty()) {
             List<AiRecommendResponse.Pick> top = candidates.stream().limit(MAX_PICKS).map(c -> pick(c, null)).toList();
-            return new AiRecommendResponse(false, BUSY, candidates.size(), top);
+            return new AiRecommendResponse(false, answer == null ? BUSY : UNUSABLE, candidates.size(), top);
         }
         return new AiRecommendResponse(true, null, candidates.size(), picks);
+    }
+
+    private static String fieldNames(JsonNode node) {
+        List<String> keys = new ArrayList<>();
+        node.propertyNames().forEach(keys::add);
+        return String.join(",", keys);
     }
 
     /** AI 답 검수: 후보 번호만, 겹치지 않게 3개까지. 이유는 다른 후보의 장소 이름·지어낸 가격·시간이 있으면 뺀다 */
@@ -151,17 +172,34 @@ public class AiRecommendService {
         if (reason.isEmpty() || INVENTED.matcher(reason).find()) {
             return null;
         }
+        // 다른 코스의 장소를 이 코스 이유로 쓴 경우: 장소 이름이 통째로 있거나, 이유의 낱말(4자 이상, 조사를 뗀)이
+        // 다른 후보 장소 이름의 일부인데 이 코스에는 없을 때 ("송도해상케이블카에서" ↔ 다른 후보의 "송도해상케이블카(스카이)")
+        String mineText = compact(mine.title() + String.join("", mine.stepNames()));
+        List<String> words = java.util.Arrays.stream(reason.split("[\s,.!?·]+"))
+                .map(w -> compact(w).replaceAll("(에서|에서는|으로|에는|과|와|을|를|이|가|은|는|의|도|로|에)$", ""))
+                .filter(w -> w.length() >= 4).toList();
         for (Candidate other : all) {
             if (other.id() == mine.id()) {
                 continue;
             }
             for (String name : other.stepNames()) {
                 if (name.length() >= 3 && reason.contains(name) && !mine.stepNames().contains(name)) {
-                    return null;   // 다른 코스의 장소를 이 코스 이유로 쓴 경우
+                    return null;
+                }
+                String otherName = compact(name);
+                for (String w : words) {
+                    if (otherName.contains(w) && !mineText.contains(w)) {
+                        return null;
+                    }
                 }
             }
         }
         return reason.length() > REASON_MAX ? reason.substring(0, REASON_MAX - 1) + "…" : reason;
+    }
+
+    /** 띄어쓰기·괄호·기호를 뺀 글자 (이름 비교용) */
+    private static String compact(String text) {
+        return text == null ? "" : text.replaceAll("[^0-9A-Za-z가-힣]", "");
     }
 
     private static AiRecommendResponse.Pick pick(Candidate c, String reason) {
@@ -170,8 +208,10 @@ public class AiRecommendService {
 
     static Candidate fromCard(CourseCard c, Map<String, String> names) {
         List<String> steps = c.steps().stream().map(s -> s.name() + "(" + label(s.category()) + ")").toList();
+        // 시도 전체·전국 후보는 어느 시도인지도 알려 준다 ("부산 해운대구")
+        String area = String.join(" ", java.util.stream.Stream.of(c.sido(), c.sigungu()).filter(v -> v != null && !v.isBlank()).toList());
         return new Candidate(c.id(), c.title(), c.sigungu(), c.totalMinutes(), steps, c.steps().stream().map(s -> s.name()).toList(),
-                c.keywords().stream().map(k -> names.getOrDefault(k, k)).toList(), true);
+                c.keywords().stream().map(k -> names.getOrDefault(k, k)).toList(), true, area);
     }
 
     static Candidate fromDetail(CourseDetailResponse d, Map<String, String> names) {
@@ -209,7 +249,7 @@ public class AiRecommendService {
         for (int i = 0; i < candidates.size(); i++) {
             Candidate c = candidates.get(i);
             sb.append(i + 1).append(". ").append(c.title())
-                    .append(" | ").append(c.sigungu() == null ? "" : c.sigungu())
+                    .append(" | ").append(c.area() == null ? "" : c.area())
                     .append(" | ").append(String.join(" → ", c.steps()));
             if (!c.keywordNames().isEmpty()) {
                 sb.append(" | 키워드: ").append(String.join(", ", c.keywordNames()));

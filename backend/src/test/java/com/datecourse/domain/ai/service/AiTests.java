@@ -29,6 +29,40 @@ class AiTests {
     }
 
     @Test
+    void 풍경과_시도는_지점이_아니라_범위로_알아듣는다() {
+        QueryRules.Parsed busan = QueryRules.parse("부산 바닷가");
+        assertThat(busan.sidos()).containsExactly("부산광역시");   // 예전엔 "부산" → 같은 글자로 시작하는 부산진구(서면)
+        assertThat(busan.scene()).isEqualTo("sea");
+        assertThat(busan.areaCandidates()).isEmpty();
+
+        QueryRules.Parsed sea = QueryRules.parse("바다 보러 가고 싶어");
+        assertThat(sea.scene()).isEqualTo("sea");
+        assertThat(sea.sidos()).isEmpty();                         // 지역이 없으면 전국에서
+
+        assertThat(QueryRules.parse("전라도 바다").sidos()).containsExactly("전북특별자치도", "전남광주통합특별시");
+        QueryRules.Parsed west = QueryRules.parse("서해 노을");
+        assertThat(west.scene()).isEqualTo("sea");
+        assertThat(west.sidos()).contains("충청남도", "인천광역시");
+
+        // 시도 이름처럼 시작하지만 지역(구·시)인 말은 지점 후보로
+        assertThat(QueryRules.parse("부산진구 맛집").sidos()).isEmpty();
+        assertThat(QueryRules.parse("제주시 카페").sidos()).isEmpty();
+        assertThat(QueryRules.parse("제주도 카페").sidos()).containsExactly("제주특별자치도");
+        assertThat(QueryRules.parse("산책하기 좋은 곳").scene()).isNull();   // 산책은 산이 아님
+    }
+
+    @Test
+    void 비_오는_날_풍경은_실내로_바꾸지_않는다() {
+        QueryRules.Parsed p = QueryRules.parse("비 오는 날 바다 보러 가고 싶어");
+        assertThat(p.scene()).isEqualTo("sea");
+        assertThat(p.rainy()).isTrue();
+        assertThat(p.setting()).isNull();                          // 비 오는 날의 바다를 원함
+
+        assertThat(QueryRules.parse("비 오는 날 성수동 데이트").setting()).isEqualTo("indoor");   // 풍경이 없으면 그대로 실내
+        assertThat(QueryRules.parse("추워서 실내에서 바다 보고 싶어").setting()).isEqualTo("indoor");   // 실내를 바라면 실내
+    }
+
+    @Test
     void 규칙_예산과_실내외의_다른_말() {
         assertThat(QueryRules.parse("가성비 좋은 야외 데이트").budget()).isEqualTo("budget-low");
         assertThat(QueryRules.parse("가성비 좋은 야외 데이트").setting()).isEqualTo("outdoor");
@@ -77,6 +111,10 @@ class AiTests {
         assertThat(picks.get(0).reason()).isEqualTo("바다 앞 도서관과 카페로 조용해요");
         assertThat(picks.get(1).reason()).isNull();    // 다른 코스(2번)의 가게 이름을 1번 이유로 씀 → 이유만 뺌
         assertThat(com.datecourse.domain.ai.service.AiTestAccess.checkReason("2만원이면 충분해요", a, List.of(a, b))).isNull();   // 지어낸 가격
+        // 다른 후보 장소 이름의 일부("송도해상케이블카(스카이)" 안의 "송도해상케이블카")를 조사를 붙여 써도 걸러낸다
+        var c = com.datecourse.domain.ai.service.AiTestAccess.candidate(3, "송도 코스", List.of("송도해상케이블카(스카이)", "카페"));
+        assertThat(com.datecourse.domain.ai.service.AiTestAccess.checkReason("송도해상케이블카에서 바다를 봐요", a, List.of(a, c))).isNull();
+        assertThat(com.datecourse.domain.ai.service.AiTestAccess.checkReason("도을 카페에서 조용히 쉬기 좋아요", a, List.of(a, c))).isEqualTo("도을 카페에서 조용히 쉬기 좋아요");
     }
 
     @Test

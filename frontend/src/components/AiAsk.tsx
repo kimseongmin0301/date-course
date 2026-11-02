@@ -7,6 +7,11 @@ export interface AiParse {
   keywords: string[]
   aiUsed: boolean
   understood: string
+  /** 시도 범위 ("부산" → 부산광역시, "전라도" → 둘). area 가 없을 때 시도 전체에서 찾는다 */
+  sidos: string[]
+  /** 풍경: sea(바다)·mountain(산·숲)·water(강·호수) */
+  scene: string | null
+  rainy: boolean
 }
 
 /**
