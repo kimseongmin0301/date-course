@@ -8,8 +8,19 @@ import java.util.List;
  */
 public record AiRecommendResponse(boolean ai, String message, int candidates, List<Pick> picks) {
 
-    /** 고른 코스 하나. reason: AI 가 쓴 한 줄 이유(검수에서 빠지면 null), inRanking: 지금 순위 목록 첫 쪽에 있는 코스인지 */
+    /**
+     * 고른 코스 하나. reason: AI 가 쓴 한 줄 이유(검수에서 빠지면 null), inRanking: 지금 순위 목록 첫 쪽에 있는 코스인지,
+     * withShop: 가게 이름으로 찾았고 그 가게를 넣은 코스로 보여준 것 (stepNames 에 그 가게가 들어 있음, 화면은 "넣어 보기"로 연다)
+     */
     public record Pick(long courseId, String title, String sigungu, Integer totalMinutes, List<String> stepNames,
-                       String reason, boolean inRanking) {
+                       String reason, boolean inRanking, boolean withShop) {
+
+        public Pick(long courseId, String title, String sigungu, Integer totalMinutes, List<String> stepNames, String reason, boolean inRanking) {
+            this(courseId, title, sigungu, totalMinutes, stepNames, reason, inRanking, false);
+        }
+
+        public Pick withShop(boolean value) {
+            return new Pick(courseId, title, sigungu, totalMinutes, stepNames, reason, inRanking, value);
+        }
     }
 }

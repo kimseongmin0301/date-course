@@ -120,6 +120,22 @@ class AiTests {
     }
 
     @Test
+    void 가게_이름으로_찾았으면_후보마다_그_가게를_넣는다() {
+        var c = AiTestAccess.candidate(1, "마포 코스", List.of("마포음식문화거리", "북클럽", "카페진미", "역전회관"));
+        var shop = AiRecommendService.Shop.of("오리재", "restaurant");
+
+        var with = AiRecommendService.withShop(c, List.of("spot", "spot", "cafe", "meal"), shop);
+        assertThat(with.stepNames()).containsExactly("마포음식문화거리", "북클럽", "카페진미", "오리재");   // 식당 단계를 바꿈
+        assertThat(with.steps().get(3)).isEqualTo("오리재(식당)");
+        assertThat(AiRecommendService.prompt("오리재", List.of(with), shop)).contains("요청한 가게: 오리재(식당)");
+
+        var noMeal = AiRecommendService.withShop(AiTestAccess.candidate(2, "명소 코스", List.of("명소", "카페")), List.of("spot", "cafe"), shop);
+        assertThat(noMeal.stepNames()).containsExactly("명소", "카페", "오리재");   // 식당 단계가 없으면 맨 뒤에
+        assertThat(AiRecommendService.withShop(with, List.of("spot", "spot", "cafe", "meal"), shop)).isSameAs(with);   // 이미 들었으면 그대로
+        assertThat(AiRecommendService.Shop.of("가", "restaurant")).isNull();
+    }
+
+    @Test
     void AI_추천은_후보_번호만_받고_이유를_검수한다() throws Exception {
         var a = com.datecourse.domain.ai.service.AiTestAccess.candidate(1, "도을 데이트 코스", List.of("수눌음", "도을", "낭뜰에쉼팡"));
         var b = com.datecourse.domain.ai.service.AiTestAccess.candidate(2, "강동 바다 코스", List.of("강동바다도서관", "에르벵커피하우스", "가고파"));

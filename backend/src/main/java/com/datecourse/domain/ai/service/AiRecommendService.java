@@ -95,20 +95,67 @@ public class AiRecommendService {
         CourseSearchRequest search = region ? null : courses.normalize(body.lat(), body.lng(), body.radius(), body.kw(), 0, body.scene(), body.food(), body.shop());
         CourseQueryService.RegionRequest regionSearch = region ? courses.normalizeRegion(body.sido(), body.scene(), body.kw(), 0, body.food()) : null;
         Set<Long> exclude = body.exclude() == null ? Set.of() : body.exclude().stream().limit(60).collect(Collectors.toSet());
+        Shop shop = region ? null : Shop.of(body.shopName(), body.shopCategory());
         String key = "ai-rec:" + hash(q) + ":" + (region ? regionSearch.cacheKey() : search.cacheKey()) + ":"
-                + exclude.stream().sorted().map(String::valueOf).collect(Collectors.joining(","));
+                + exclude.stream().sorted().map(String::valueOf).collect(Collectors.joining(","))
+                + (shop == null ? "" : ":with=" + hash(shop.name() + "|" + shop.category()));
         return cache.getOrLoad(key, (Cached c) -> c.settled() ? Duration.ofDays(1) : Duration.ofMinutes(5),
                 new TypeReference<Cached>() { }, () -> {
-                    AiRecommendResponse r = load(q, search, regionSearch, exclude, ip);
+                    AiRecommendResponse r = load(q, search, regionSearch, exclude, shop, ip);
                     return new Cached(r, r.ai() || !ollama.enabled());
                 }).response();
     }
 
+    /**
+     * 가게 이름으로 찾은 가게 (AI 검색 "오리재"): 후보 코스마다 같은 종류 단계를 이 가게로 바꿔 보여주고 고르게 한다
+     * (화면의 "넣어 보기"와 같은 규칙: 카페 → 카페 단계, 식당·술집 → 식당 단계, 그 밖에는 첫 장소 다음에 끼움)
+     */
+    record Shop(String name, String category) {
+
+        static Shop of(String name, String category) {
+            String n = name == null ? "" : name.replaceAll("[\\p{Cntrl}]", "").strip().replaceAll("\\s+", " ");
+            if (n.length() < 2 || n.length() > 30) {
+                return null;
+            }
+            String c = Set.of("cafe", "restaurant", "bar", "shop", "activity").contains(category) ? category : "shop";
+            return new Shop(n, c);
+        }
+
+        String label() {
+            return AiRecommendService.label(category);
+        }
+    }
+
+    /** 후보에 가게를 넣는다. roles: 그 코스의 단계 역할(spot·cafe·meal) 순서대로. 이미 든 코스는 그대로 */
+    static Candidate withShop(Candidate c, List<String> roles, Shop shop) {
+        if (c.stepNames().contains(shop.name())) {
+            return c;
+        }
+        String target = "cafe".equals(shop.category()) ? "cafe" : "restaurant".equals(shop.category()) || "bar".equals(shop.category()) ? "meal" : null;
+        int at = target == null ? -1 : roles.indexOf(target);
+        List<String> steps = new ArrayList<>(c.steps());
+        List<String> names = new ArrayList<>(c.stepNames());
+        String step = shop.name() + "(" + shop.label() + ")";
+        if (at >= 0 && at < steps.size()) {
+            steps.set(at, step);
+            names.set(at, shop.name());
+        } else {
+            int meal = roles.indexOf("meal");
+            int index = "cafe".equals(target) ? (meal >= 0 ? meal : steps.size()) : "meal".equals(target) ? steps.size() : Math.min(1, steps.size());
+            steps.add(index, step);
+            names.add(index, shop.name());
+        }
+        return new Candidate(c.id(), c.title(), c.sigungu(), c.minutes(), List.copyOf(steps), List.copyOf(names), c.keywordNames(), c.inRanking(), c.area());
+    }
+
     private AiRecommendResponse load(String q, CourseSearchRequest search, CourseQueryService.RegionRequest regionSearch,
-                                     Set<Long> exclude, String ip) {
+                                     Set<Long> exclude, Shop shop, String ip) {
         Map<String, String> names = keywords.all().stream().collect(Collectors.toMap(KeywordResponse::code, KeywordResponse::name, (a, b) -> a));
         CourseSearchResponse ranked = search != null ? courses.search(search) : courses.searchRegion(regionSearch);
         List<Candidate> ranking = ranked.courses().stream().filter(c -> !exclude.contains(c.id())).map(c -> fromCard(c, names)).toList();
+        // 단계 역할 (가게를 넣을 자리를 찾으려고)
+        Map<Long, List<String>> roles = new java.util.HashMap<>();
+        ranked.courses().forEach(c -> roles.put(c.id(), c.steps().stream().map(s -> s.role()).toList()));
 
         // 요청 문장과 비슷한 코스 (지금 순위 첫 쪽에 없는 것만)
         List<Candidate> similar = new ArrayList<>();
@@ -120,29 +167,41 @@ public class AiRecommendService {
                 ranking.forEach(c -> skip.add(c.id()));
                 for (long id : embeddings.similar(qv.get(0), search.lat(), search.lng(), ranked.radius(), skip, MAX_CANDIDATES - FROM_RANKING)) {
                     try {
-                        similar.add(fromDetail(courses.detail(id), names));
+                        CourseDetailResponse d = courses.detail(id);
+                        roles.put(id, d.steps().stream().map(s -> s.role()).toList());
+                        similar.add(fromDetail(d, names));
                     } catch (ApiException e) {
                         // 그새 숨긴 코스
                     }
                 }
             }
         }
-        List<Candidate> candidates = new ArrayList<>(ranking.stream().limit(FROM_RANKING).toList());
-        candidates.addAll(similar);
-        ranking.stream().skip(FROM_RANKING).limit(Math.max(0, MAX_CANDIDATES - candidates.size())).forEach(candidates::add);
+        List<Candidate> picked = new ArrayList<>(ranking.stream().limit(FROM_RANKING).toList());
+        picked.addAll(similar);
+        ranking.stream().skip(FROM_RANKING).limit(Math.max(0, MAX_CANDIDATES - picked.size())).forEach(picked::add);
+        // 가게 이름으로 찾았으면 후보마다 그 가게를 넣은 코스로 (목록에 그 가게가 든 코스가 없어도 그 가게로 다니는 코스를 고르게)
+        Set<Long> shopped = new LinkedHashSet<>();
+        List<Candidate> candidates = shop == null ? picked : picked.stream().map(c -> {
+            Candidate s = withShop(c, roles.getOrDefault(c.id(), List.of()), shop);
+            if (s != c) {
+                shopped.add(c.id());
+            }
+            return s;
+        }).toList();
         if (candidates.isEmpty()) {
             return new AiRecommendResponse(false, "이 근처에서 더 고를 코스가 없어요. 지도를 넓히거나 옮겨 주세요.", 0, List.of());
         }
 
         // 너무 자주 누르면 AiGate 가 429 를 던져 그대로 알린다
-        JsonNode answer = gate.call(ip, () -> ollama.generateJson(prompt(q, candidates), 220));
-        List<AiRecommendResponse.Pick> picks = answer == null ? List.of() : accept(answer, candidates);
+        JsonNode answer = gate.call(ip, () -> ollama.generateJson(prompt(q, candidates, shop), 220));
+        List<AiRecommendResponse.Pick> picks = (answer == null ? List.<AiRecommendResponse.Pick>of() : accept(answer, candidates)).stream()
+                .map(p -> p.withShop(shopped.contains(p.courseId()))).toList();
         // 문장은 남기지 않고 답의 모양만 (바쁨과 쓸 수 없는 답을 나눠 보려고)
         log.info("AI 추천: 후보 {}개(비슷한 코스 {}), {}", candidates.size(), similar.size(),
                 answer == null ? "바빠서 순위로" : picks.isEmpty() ? "쓸 수 없는 답(키 " + fieldNames(answer) + ", picks " + answer.path("picks").size() + "개)이라 순위로"
                         : "AI " + picks.size() + "개");
         if (picks.isEmpty()) {
-            List<AiRecommendResponse.Pick> top = candidates.stream().limit(MAX_PICKS).map(c -> pick(c, null)).toList();
+            List<AiRecommendResponse.Pick> top = candidates.stream().limit(MAX_PICKS).map(c -> pick(c, null).withShop(shopped.contains(c.id()))).toList();
             return new AiRecommendResponse(false, answer == null ? BUSY : UNUSABLE, candidates.size(), top);
         }
         return new AiRecommendResponse(true, null, candidates.size(), picks);
@@ -230,7 +289,7 @@ public class AiRecommendService {
                 d.keywords().stream().map(k -> names.getOrDefault(k, k)).toList(), false);
     }
 
-    private static String label(String category) {
+    static String label(String category) {
         return switch (category == null ? "" : category) {
             case "attraction" -> "관광명소";
             case "culture" -> "문화시설";
@@ -244,6 +303,11 @@ public class AiRecommendService {
     }
 
     static String prompt(String q, List<Candidate> candidates) {
+        return prompt(q, candidates, null);
+    }
+
+    /** shop: 가게 이름으로 찾았으면 그 가게 (후보에 넣어 두었다고 알려 이유에 써도 되게) */
+    static String prompt(String q, List<Candidate> candidates, Shop shop) {
         StringBuilder sb = new StringBuilder("""
                 너는 데이트 코스를 골라 주는 도우미다. 아래 후보 코스 중에서만 요청에 맞는 코스를 최대 3개 골라라.
                 후보는 인기·품질이 높은 순서로 번호가 매겨져 있다(앞 번호일수록 많은 사람이 좋아할 만한 코스).
@@ -254,7 +318,12 @@ public class AiRecommendService {
                 - 코스마다 n(후보 번호)과 reason(이유)을 함께 쓴다. 이유는 그 후보에 적힌 장소·업종·키워드만 근거로 한국어 한 문장, 40자 안.
                 - 가격, 영업시간, 리뷰, 거리처럼 후보에 없는 사실은 지어내지 않는다.
                 답 예시(이 모양 그대로): {"picks":[{"n":1,"reason":"해변 산책 뒤 바다 앞 카페로 이어져요"},{"n":2,"reason":"전망대에서 노을을 보고 식사해요"}]}
-                요청: """).append(q).append("\n후보:\n");
+                """);
+        if (shop != null) {
+            sb.append("요청한 가게: ").append(shop.name()).append("(").append(shop.label()).append(")")
+                    .append(". 아래 후보 코스에는 이 가게를 이미 넣어 두었다. 이 가게와 함께 다니기 좋은 코스를 고르고, 이유에 이 가게 이름을 써도 된다.\n");
+        }
+        sb.append("요청: ").append(q).append("\n후보:\n");
         for (int i = 0; i < candidates.size(); i++) {
             Candidate c = candidates.get(i);
             sb.append(i + 1).append(". ").append(c.title())

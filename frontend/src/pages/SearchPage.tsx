@@ -332,7 +332,7 @@ export default function SearchPage() {
       )}
       {ask && !loading && courses.length > 0 && (
         <AiPicks
-          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}|${food}|${shop?.id}`}
+          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}|${sidoParam}|${scene}|${food}|${shop?.id}|${shop?.name}`}
           q={ask}
           lat={point ? lat : null}
           lng={point ? lng : null}
@@ -341,7 +341,7 @@ export default function SearchPage() {
           sido={sidos}
           scene={scene}
           food={foodInfo ? food : null}
-          shop={shop?.id ?? null}
+          shop={shop}
           onShow={(id) => {
             if (!courses.some((c) => c.id === id)) return false
             setSelected(id)

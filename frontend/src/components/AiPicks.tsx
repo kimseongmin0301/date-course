@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { formatMinutes } from '../lib/format'
+import { shopQuery, type Shop } from '../lib/shop'
 
 interface Pick {
   courseId: number
@@ -11,6 +12,8 @@ interface Pick {
   stepNames: string[]
   reason: string | null
   inRanking: boolean
+  /** 가게 이름으로 찾았고 그 가게를 넣은 코스로 보여준 것 (stepNames 에 그 가게가 있음) */
+  withShop?: boolean
 }
 
 interface AiRecommend {
@@ -34,8 +37,8 @@ export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, fo
   sido: string[]
   scene: string | null
   food: string | null
-  /** 가게 이름으로 찾았으면 그 가게 id (그 가게가 든 코스가 후보 위로) */
-  shop: number | null
+  /** 가게 이름으로 찾았으면 그 가게: 그 가게가 든 코스가 후보 위로, 나머지 후보에는 그 가게를 넣어 고르게 한다 */
+  shop: Shop | null
   onShow: (courseId: number) => boolean
 }) {
   const [result, setResult] = useState<AiRecommend | null>(null)
@@ -49,7 +52,10 @@ export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, fo
     try {
       const res = await api<AiRecommend>('/ai/recommend', {
         method: 'POST',
-        body: JSON.stringify({ q, lat, lng, radius, kw: keywords, exclude, sido, scene, food, shop }),
+        body: JSON.stringify({
+          q, lat, lng, radius, kw: keywords, exclude, sido, scene, food,
+          shop: shop?.id ?? null, shopName: shop?.name ?? null, shopCategory: shop?.category ?? null,
+        }),
       })
       setResult(res)
       setSeen([...exclude, ...res.picks.map((p) => p.courseId)])
@@ -81,14 +87,15 @@ export default function AiPicks({ q, lat, lng, radius, keywords, sido, scene, fo
                 <strong>{p.title}</strong>
                 <span className="muted small"> · {[p.sigungu, p.totalMinutes ? formatMinutes(p.totalMinutes) : null].filter(Boolean).join(' · ')}</span>
                 <p className="small steps-line">{p.stepNames.join(' → ')}</p>
+                {p.withShop && shop && <p className="small muted">📍 {shop.name}: 이 가게를 넣은 코스예요</p>}
                 {p.reason && <p className="small ai-reason">💬 {p.reason}</p>}
                 <div className="step-actions">
-                  {p.inRanking && (
+                  {p.inRanking && !p.withShop && (
                     <button type="button" className="link-button small" onClick={() => onShow(p.courseId)}>
                       지도에서 보기
                     </button>
                   )}
-                  <Link to={`/courses/${p.courseId}`} className="more">
+                  <Link to={`/courses/${p.courseId}${shopQuery(p.withShop ? shop : null, food)}`} className="more">
                     코스 자세히 보기 →
                   </Link>
                 </div>
