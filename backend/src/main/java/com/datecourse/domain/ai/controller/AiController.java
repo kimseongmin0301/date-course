@@ -13,7 +13,7 @@ import com.datecourse.global.util.VisitorCookie;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-/** 실험 기능: 말로 찾기(문장 → 지역·키워드), AI 추천(후보 코스 안에서 고르기). 서버 안 Ollama 만 쓴다 */
+/** 실험 기능: AI 검색(문장 → 지역·키워드), AI 추천(후보 코스 안에서 고르기). 서버 안 Ollama 만 쓴다 */
 @RestController
 public class AiController {
 

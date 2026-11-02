@@ -15,7 +15,7 @@ import { useMap } from '../map/context'
 
 // 검색 결과: 왼쪽 코스 순위 카드, 지도에는 코스 가운데 순위 핀. 카드를 고르면 그 코스 단계와 동선을 그린다
 // 주소 예: /search?lat=37.4979&lng=127.0276&r=2000&kw=quiet,cozy (지점 반경)
-//         /search?sido=부산광역시&scene=sea&q=… (말로 찾기: 시도 전체), /search?scene=sea (풍경만: 전국)
+//         /search?sido=부산광역시&scene=sea&q=… (AI 검색: 시도 전체), /search?scene=sea (풍경만: 전국)
 const SCENE_LABEL: Record<string, string> = { sea: '바다', mountain: '산·숲', water: '강·호수' }
 
 /** "부산광역시" → 부산 (목록에 짧게) */
@@ -32,7 +32,7 @@ export default function SearchPage() {
   const location = useLocation()
   const navState = location.state as { widenedFrom?: number; understood?: string; aiUsed?: boolean } | null
   const widenedFrom = navState?.widenedFrom
-  // 말로 찾기로 들어왔을 때 알아들은 내용. 이 화면에서 다시 말로 찾으면 바꾸고, 반경을 넓히며 state 가 바뀔 때는 그대로 둔다
+  // AI 검색로 들어왔을 때 알아들은 내용. 이 화면에서 다시 AI 검색을 하면 바꾸고, 반경을 넓히며 state 가 바뀔 때는 그대로 둔다
   const [understood, setUnderstood] = useState(() => (navState?.understood ? { text: navState.understood, aiUsed: !!navState.aiUsed } : null))
   useEffect(() => {
     if (navState?.understood) setUnderstood({ text: navState.understood, aiUsed: !!navState.aiUsed })
@@ -45,12 +45,12 @@ export default function SearchPage() {
   const lat = Number(params.get('lat'))
   const lng = Number(params.get('lng'))
   const radius = Number(params.get('r') ?? 3000)
-  /** 말로 찾기의 풍경(바다·산·물가)과 시도 범위. lat 없이 sido·scene 만 있으면 시도 전체·전국에서 찾는다 */
+  /** AI 검색의 풍경(바다·산·물가)과 시도 범위. lat 없이 sido·scene 만 있으면 시도 전체·전국에서 찾는다 */
   const scene = params.get('scene')
   const sidoParam = params.get('sido')
   const sidos = useMemo(() => (sidoParam ? sidoParam.split(',').filter(Boolean) : []), [sidoParam])
   const kwParam = params.get('kw')
-  /** 홈의 말로 찾기 문장 (있으면 AI 추천을 보여줌) */
+  /** 홈의 AI 검색 문장 (있으면 AI 추천을 보여줌) */
   const ask = params.get('q')
   const keywords = useMemo(() => parseKeywords(kwParam), [kwParam])
   const point = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
@@ -248,7 +248,7 @@ export default function SearchPage() {
     }
   }
 
-  /** 이 화면에서 말로 찾기: 알아들은 조건으로 목록을 바꾼다 (지역을 못 알아들으면 지금 지도에서) */
+  /** 이 화면에서 AI 검색: 알아들은 조건으로 목록을 바꾼다 (지역을 못 알아들으면 지금 지도에서) */
   function askHere(q: string, r: AiParse) {
     const c = map?.getCenter()
     const here = c ? { lat: c.lat(), lng: c.lng(), radius: map ? visibleRadius(map) : radius } : point ? { lat, lng, radius } : null

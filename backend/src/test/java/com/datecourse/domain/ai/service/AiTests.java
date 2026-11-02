@@ -13,7 +13,7 @@ import com.datecourse.domain.ai.util.QueryRules;
 
 import tools.jackson.databind.json.JsonMapper;
 
-/** 말로 찾기 규칙, AI 답 검수, 코스 임베딩 글·비슷한 코스 찾기 (Ollama·DB 없이) */
+/** AI 검색 규칙, AI 답 검수, 코스 임베딩 글·비슷한 코스 찾기 (Ollama·DB 없이) */
 class AiTests {
 
     JsonMapper json = JsonMapper.builder().build();

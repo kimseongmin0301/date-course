@@ -54,7 +54,7 @@
 │     │  │                         CourseController /api/courses·/api/courses/{id}·…/alternatives·/api/places/nearby·/api/places/naver,
 │     │  │                         PlanController·PlanService·PlanRepository (내 일정 저장 /api/plans, saved_plan) (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
-│     │  ├─ ai/                    실험 기능: 말로 찾기·AI 추천 (AiController /api/ai/parse·/recommend, AiParseService, AiRecommendService,
+│     │  ├─ ai/                    실험 기능: AI 검색·AI 추천 (AiController /api/ai/parse·/recommend, AiParseService, AiRecommendService,
 │     │  │                         CourseEmbeddingService(코스 임베딩·메모리 색인), AiGate(한 번에 하나·한도), client/OllamaClient, util/QueryRules)
 │     │  ├─ account/               다른 기기에서도 보기: AccountController /api/account·/login·/logout, AccountService(코드·잠금·일정 옮기기),
 │     │  │                         AccountRepository(plan_account), util/PasswordHasher(PBKDF2)
@@ -153,9 +153,9 @@ npm run lint
 | `healing-room:date-course:address:{주소}` | 주소 찾기 결과 (일정에 직접 넣을 가게, Geocoding) | 1일 (못 찾았으면 10분) |
 | `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 (못 찾았으면 10분: 키를 막 넣었거나 잠깐 오류여도 하루 내내 빈 결과가 나가지 않게) |
 | `healing-room:date-course:account-fail:code:{코드}`, `…:account-fail:ip:{IP}` | 코드 로그인 틀린 수 (코드 5번·IP 20번이면 잠금) | 15분 |
-| `healing-room:date-course:ai-parse:{문장 해시}`, `…:ai-rec:{문장 해시}:{검색 조건}:{뺀 코스}` | 말로 찾기·AI 추천 결과 (문장은 저장하지 않음) | 1일 (AI 가 바빴으면 5~10분) |
+| `healing-room:date-course:ai-parse:{문장 해시}`, `…:ai-rec:{문장 해시}:{검색 조건}:{뺀 코스}` | AI 검색·AI 추천 결과 (문장은 저장하지 않음) | 1일 (AI 가 바빴으면 5~10분) |
 | `healing-room:date-course:ai-count:{날짜}`, `…:ai-ip:{IP}:{시}` | AI 부른 수 (하루 500·IP 한 시간 20) | 2일 / 1시간 |
-| `healing-room:date-course:location-local:{검색어}` | Geocoding 없이 우리 데이터로만 찾은 지역 (말로 찾기) | 1일 (없으면 10분) |
+| `healing-room:date-course:location-local:{검색어}` | Geocoding 없이 우리 데이터로만 찾은 지역 (AI 검색) | 1일 (없으면 10분) |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
@@ -218,7 +218,7 @@ cd backend
 | GET | `/api/keywords` | 키워드 칩 `[{ code, name, kind }]` (분위기 → 활동 → 실내외 → 예산) |
 | GET | `/api/courses?lat=&lng=&radius=&kw=&page=` | 코스 순위 목록. 지도 가운데에서 `radius`(m, 기본 3000, 500~20000) 안의 코스 가운데, `kw` 0~3개(`kw=quiet,cozy` 또는 `kw=quiet&kw=cozy`), `page` 0~9(한 쪽 20개) → `{ total, page, size, courses: [{ id, title, summary, kind, sido, sigungu, centerLat, centerLng, totalMinutes, distanceMeters, keywords, matchedKeywords, steps: [{ order, role, stayMinutes, walkMinutes, placeId, name, branch, category, lat, lng }] }] }`. 국외 좌표·반경·모르는 키워드·4개 이상은 400 |
 | GET | `/api/locations?q=` | 지역 검색(2~40자) → 최대 10개 `[{ kind, name, detail, lat, lng, radius }]`. `station` 역(지하철역 좌표가 데이터에 없어서 이름·지점명에 "반석역"이 든 가게 2곳 이상의 평균 좌표, 시군구마다 하나, 실제 역과 약 100m), `area` 시군구·행정동(우리 장소들의 평균 좌표, "성수동" → 끝의 동을 떼고 성수1가1동 등)과 법정동(지번 주소의 동: "반석동"은 행정동으로 노은3동이라), `place` 명소·문화시설(이름에 검색어), `address` 네이버 Geocoding(키가 있고 하루 한도 안일 때. 역·가게 이름은 못 찾음). "대전 반석역"처럼 앞에 시도를 쓰면 그 시도 안에서만(같은 이름이 여러 도시에 있어서). `radius` 는 지도에 보여줄 반경 제안 |
-| GET | `/api/courses/region?sido=&scene=&kw=&page=` | 시도 전체·전국 코스 순위 (말로 찾기). `sido` 쉼표로 여럿(비면 전국), `scene` sea·mountain·water. 둘 중 하나는 있어야 함. 코스 점수 + 키워드 일치로만(거리 없음, radius 0). `/api/courses` 에도 `scene` 을 붙일 수 있음 |
+| GET | `/api/courses/region?sido=&scene=&kw=&page=` | 시도 전체·전국 코스 순위 (AI 검색). `sido` 쉼표로 여럿(비면 전국), `scene` sea·mountain·water. 둘 중 하나는 있어야 함. 코스 점수 + 키워드 일치로만(거리 없음, radius 0). `/api/courses` 에도 `scene` 을 붙일 수 있음 |
 | GET | `/api/courses/{id}/steps/{order}/alternatives` | 그 단계의 근처 대안(같은 역할: 구경·카페·식당, 원래 장소에서 600m 안) 좋은 순 5곳 `[{ place, reasons, distanceMeters }]`. 코스 만들 때와 같은 점수(`CoursePlanner.alternativeScore`), 코스에 든 곳·같은 가게는 뺌. 1시간 캐시(`courses:{id}:alt:{order}`). 없는 코스·단계 404 |
 | GET | `/api/addresses?q=` | 주소 찾기(2~60자, 데이터에 없는 가게를 일정에 직접 넣을 때) → 최대 5개 `[{ roadAddress, jibunAddress, lat, lng }]`. 네이버 Geocoding 만 쓰고 하루 한도·캐시는 지역 검색과 같음. 키가 없거나 한도를 넘으면 503 |
 | GET | `/api/places/nearby?lat=&lng=&q=` | 코스에 넣을 장소 찾기: (lat, lng) 에서 2km 안, 이름이나 업종에 q 가 든 곳 10곳. 띄어 쓴 말은 따로 봄("카페 높" → 이름·업종에 "카페"도 "높"도 든 곳, 최대 4개). 공개된 "이용자가 알려 준 곳"(분류 `custom`, id 0)도 섞음 `[{ place, reasons, distanceMeters }]`. 순서: 이름이 같음 → 이름이 q 로 시작 → 업종이 q("서점") → 이름에 들어 있기만("세무서점"), 그 안에서 가까운 순. 10분 캐시. q 없음·국외 좌표 400 |
@@ -229,7 +229,7 @@ cd backend
 | POST | `/api/account/login` | `{ code, password }` → `{ code, moved }`. 맞으면 이 브라우저의 일정을 계정으로 옮기고(같은 코스는 나중에 저장한 쪽) 쿠키를 계정 id 로 바꿈. 틀리면 401(없는 코드도 같은 말·같은 시간), 코드 5번·IP 20번 틀리면 15분 429 |
 | DELETE | `/api/account` | 코드 지우기 `{ password }` → 204 (일정은 이 브라우저에 남음). 코드 없음 404, 비밀번호 틀림 401(로그인과 같이 세고 잠금) |
 | POST | `/api/account/logout` | 이 브라우저 쿠키를 새 무작위 id 로 → 204 (계정 일정은 그대로) |
-| POST | `/api/ai/parse` | 실험 기능. 말로 찾기 `{ q }`(2~100자) → `{ area, keywords, aiUsed, understood }` (area 는 `/api/locations` 결과 하나 또는 null, keywords 는 실내외·예산 포함 3개까지). 규칙 먼저, 모자라면 Ollama |
+| POST | `/api/ai/parse` | 실험 기능. AI 검색 `{ q }`(2~100자) → `{ area, keywords, aiUsed, understood }` (area 는 `/api/locations` 결과 하나 또는 null, keywords 는 실내외·예산 포함 3개까지). 규칙 먼저, 모자라면 Ollama |
 | POST | `/api/ai/recommend` | 실험 기능. AI 추천 `{ q, lat, lng, radius, kw, exclude? }` → `{ ai, message, candidates, picks: [{ courseId, title, sigungu, totalMinutes, stepNames, reason, inRanking }] }`. 후보 안에서만 고르고 검수, 바쁘면 `ai:false` + 순위 위 3개. IP 한 시간 20번 넘으면 429 |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
@@ -276,11 +276,11 @@ cd backend
 - 공개된 가게는 **장소 찾기에만** 나오고(이유 "이용자가 알려 준 곳") 자동 코스·순위에는 쓰지 않습니다. 같은 가게가 우리 데이터(다음 분기 상가정보 등)에 들어오면 장소 찾기에서 저절로 빠집니다. 장소 찾기 결과는 10분 캐시라 공개된 뒤 같은 검색어에는 최대 10분 늦게 나옵니다.
 - 쿠키를 지우면 한 사람이 여러 방문자로 보일 수 있어 3명 기준은 완벽하지 않습니다(장난 방지 수준).
 
-### 말로 찾기 · AI 추천 (실험 기능, `domain/ai`)
+### AI 검색 · AI 추천 (실험 기능, `domain/ai`)
 - 서버 안 **Ollama**(포트폴리오 챗봇과 같은 것: GTX 1650 4GB, 답 `gemma3:4b`, 임베딩 `embeddinggemma`)만 씁니다. 키·외부 호출 없음, 사용자 문장은 밖으로 나가지 않습니다. 짧은 답 하나 약 15~20초, AI 추천은 후보가 길어 약 30초(운영 측정).
-- **말로 찾기**(`POST /api/ai/parse`, `AiParseService`): ① 규칙(`util/QueryRules`)이 먼저: 비·눈·추위·더위 → 실내, "○만원" → 예산, 비슷한 말 사전 → 분위기·활동, 조사를 뗀 낱말 중 동·역·구… 로 끝나는 말부터 우리 지역 데이터로 확인(`LocationSearchService.searchLocal`: Geocoding 안 부름). ② 지역이나 분위기·활동을 못 알아들었을 때만 Ollama. ③ AI 답 검수: 지역은 원래 문장에 그 글자가 있을 때만, 키워드는 정해진 17개 이름만, 규칙이 정한 실내외·예산은 AI 가 못 바꿈. 홈과 코스 순위 화면 위(`components/AiAsk`, 작게) 어디서나 쓰고, 알아들으면 바로 코스 순위(`/search?…&q=문장`, 주소 만들기는 `lib/aiSearch.ts`)로 가고, 순위 화면 위에 "이렇게 이해했어요"를 보여 사람이 지역 검색·키워드 칩으로 고칩니다. 작은 모델이 "비 오는 날"을 야외로, "5만원"을 저예산으로 잡은 것을 보고 규칙을 먼저 두었습니다.
+- **AI 검색**(`POST /api/ai/parse`, `AiParseService`): ① 규칙(`util/QueryRules`)이 먼저: 비·눈·추위·더위 → 실내, "○만원" → 예산, 비슷한 말 사전 → 분위기·활동, 조사를 뗀 낱말 중 동·역·구… 로 끝나는 말부터 우리 지역 데이터로 확인(`LocationSearchService.searchLocal`: Geocoding 안 부름). ② 지역이나 분위기·활동을 못 알아들었을 때만 Ollama. ③ AI 답 검수: 지역은 원래 문장에 그 글자가 있을 때만, 키워드는 정해진 17개 이름만, 규칙이 정한 실내외·예산은 AI 가 못 바꿈. 홈과 코스 순위 화면 위(`components/AiAsk`, 작게) 어디서나 쓰고, 알아들으면 바로 코스 순위(`/search?…&q=문장`, 주소 만들기는 `lib/aiSearch.ts`)로 가고, 순위 화면 위에 "이렇게 이해했어요"를 보여 사람이 지역 검색·키워드 칩으로 고칩니다. 작은 모델이 "비 오는 날"을 야외로, "5만원"을 저예산으로 잡은 것을 보고 규칙을 먼저 두었습니다.
 - **풍경·시도**(`course/util/Scenes`, `QueryRules`): 바다(해수욕장·해변·해안·포구·등대…)·산·숲(오름·숲·수목원·휴양림…)·강·호수(호수·계곡·강변·폭포…)는 코스의 **관광명소·문화시설·카페** 단계 이름이나 업종으로 찾습니다(식당 이름은 안 봄: 익산 횟집 "동해안"이 바다로 잡혔던 적). "부산", "제주도", "경상남도"는 지점이 아니라 **시도 전체**(예전엔 "부산" → 같은 글자로 시작하는 부산진구=서면), "부산진구", "제주시"는 지점. "전라도·경상도·충청도"는 시도 둘, "서해(안)·남해안·동해안"은 그 바다를 낀 시도들 + 바다. 지역 없이 풍경만이면 **전국**. 카페·식당·맛집 같은 가게 종류는 지역 후보가 아니고, 명소는 이름이 낱말과 같거나 낱말(3자 이상)로 시작할 때만, 시도를 알아들었으면 그 시도 안의 지점만 받습니다(`AiParseService.pickArea`: "제주 바다 감성 카페"의 "카페"가 경기 "카페도자기마을"로 잡혔던 적). **비·눈 + 풍경**은 실내로 바꾸지 않고 "비 오는 날"로만 둡니다("실내", "추워서"처럼 실내를 바라는 말이 있으면 실내). 화면: 지점이 있으면 그 반경(+ `scene`), 없으면 `/search?sido=…&scene=…` 로 시도 전체·전국 순위(지도는 결과가 다 보이게).
-- **AI 추천**(`POST /api/ai/recommend`, `AiRecommendService`, RAG): 검색 = 지금 순위 첫 쪽 8개 + 요청 문장과 비슷한 코스(임베딩, 같은 반경, 최대 4개) → 후보 최대 12개(작은 모델이 뒤 번호를 자주 골라 순위 위쪽만). 생성 = Ollama 에게 후보 번호(순위 순)·실제 정보(제목·지역·단계 장소(업종)·키워드)만 주고 3개까지 고르게. 비슷하면 앞 번호, **요청한 사람이 누구인지(첫 데이트·오래 만난 커플 등) 추측하지 않음**. 답 예시를 그대로 주고 번호만 온 답(`[10, 19, 20]`)도 이유 없이 받음, 화면에는 순위 순서로. 검수 = 후보에 없는 번호·중복은 버리고, 이유에 다른 후보의 장소 이름이나 지어낸 가격·시간·거리("2만원", "10시")가 있으면 이유만 뺍니다. 실패·바쁨이면 순위 위 3개(`ai=false`, 바쁘면 "지금은 AI 가 바빠서…", 답을 쓸 수 없으면 "AI 답을 쓸 수 없어서…", 로그에는 답의 키·개수만). 이유 검수는 다른 후보 장소 이름이 통째로 있거나, 이유의 4자 이상 낱말(조사 뗌)이 다른 후보 장소 이름의 일부인데 이 코스엔 없을 때도 이유를 뺍니다("송도해상케이블카에서"). 시도 전체·전국이면 그 순위 12개가 후보(임베딩 후보는 지점 반경일 때만). "다시 추천"은 본 코스를 `exclude` 로 넘깁니다. 코스 순위 화면은 주소에 `q`(말로 찾기 문장)가 있을 때만 이 칸을 보여주고, **누를 때만** 부릅니다.
+- **AI 추천**(`POST /api/ai/recommend`, `AiRecommendService`, RAG): 검색 = 지금 순위 첫 쪽 8개 + 요청 문장과 비슷한 코스(임베딩, 같은 반경, 최대 4개) → 후보 최대 12개(작은 모델이 뒤 번호를 자주 골라 순위 위쪽만). 생성 = Ollama 에게 후보 번호(순위 순)·실제 정보(제목·지역·단계 장소(업종)·키워드)만 주고 3개까지 고르게. 비슷하면 앞 번호, **요청한 사람이 누구인지(첫 데이트·오래 만난 커플 등) 추측하지 않음**. 답 예시를 그대로 주고 번호만 온 답(`[10, 19, 20]`)도 이유 없이 받음, 화면에는 순위 순서로. 검수 = 후보에 없는 번호·중복은 버리고, 이유에 다른 후보의 장소 이름이나 지어낸 가격·시간·거리("2만원", "10시")가 있으면 이유만 뺍니다. 실패·바쁨이면 순위 위 3개(`ai=false`, 바쁘면 "지금은 AI 가 바빠서…", 답을 쓸 수 없으면 "AI 답을 쓸 수 없어서…", 로그에는 답의 키·개수만). 이유 검수는 다른 후보 장소 이름이 통째로 있거나, 이유의 4자 이상 낱말(조사 뗌)이 다른 후보 장소 이름의 일부인데 이 코스엔 없을 때도 이유를 뺍니다("송도해상케이블카에서"). 시도 전체·전국이면 그 순위 12개가 후보(임베딩 후보는 지점 반경일 때만). "다시 추천"은 본 코스를 `exclude` 로 넘깁니다. 코스 순위 화면은 주소에 `q`(AI 검색 문장)가 있을 때만 이 칸을 보여주고, **누를 때만** 부릅니다.
 - **코스 임베딩**(`CourseEmbeddingService`, `course_embedding` V7): 코스를 "지역 제목. 장소(업종) → …. 키워드: …" 글로 만들어 32개씩 임베딩(서버 GPU 로 약 0.7초). 만들기는 수집기 `--collect=embeddings`(코스를 다시 만들 때도 저절로, 글 해시가 같으면 건너뜀). 로컬에서 돌릴 때는 서버 Ollama 로 터널: `ssh -N -L 11434:127.0.0.1:11434 ai-server`. 운영 앱은 DB 의 벡터만 메모리에 올려(1만여 개 × 768 ≈ 36MB, 켜질 때·6시간마다) 내적으로 비교합니다. pgvector 는 설치하지 않았습니다.
 - **문(`AiGate`)**: 포트폴리오 챗봇이 먼저라 이 서버에서는 한 번에 하나(8초 기다려 차례가 안 오면 바쁨 → 순위로), 사이트 하루 500번·IP 한 시간 20번(넘으면 429), Redis 가 안 되면 부르지 않음.
 - **개인정보**: 문장은 저장하지 않고 같은 문장 결과만 해시 키로 하루(`ai-parse:{해시}`, `ai-rec:{해시}:…`), 로그에도 문장을 남기지 않습니다(후보 수·성공 여부만). AI 추천 화면 주소의 `q` 는 새로고침 시 nginx 접속 기록(14일)에 남을 수 있어 방침에 적었습니다.
@@ -344,7 +344,7 @@ cd backend
 - [x] 다른 기기에서도 보기: 코드 + 비밀번호(V6), 로그인하면 이 브라우저 일정을 계정으로 합치기
 - [x] 머무는 시간 입력: 휴대폰에서 다 지우고 새로 쓰기, −10/+10
 - [x] 개인정보처리방침(`/privacy`, 2026-10-29 시행), 코드 지우기
-- [x] 실험 기능: 말로 찾기(규칙 + Ollama)·AI 추천(코스 임베딩 + 후보 안에서 고르기, V7) (2026-11-02)
+- [x] 실험 기능: AI 검색(규칙 + Ollama)·AI 추천(코스 임베딩 + 후보 안에서 고르기, V7) (2026-11-02)
 - [ ] 좋아요·다녀왔어요(반응), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr

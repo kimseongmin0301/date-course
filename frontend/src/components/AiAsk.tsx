@@ -15,12 +15,12 @@ export interface AiParse {
 }
 
 /**
- * 말로 찾기 (실험 기능): "비 오는 날 성수동 조용한 데이트, 5만원" → 지역·키워드 칩.
+ * AI 검색 (실험 기능): "비 오는 날 성수동 조용한 데이트, 5만원" → 지역·키워드 칩.
  * 규칙이 먼저 알아듣고 모자라면 서버 안 AI 가 거든다(그때는 20~40초). 알아들으면 바로 코스 순위로 가고, 거기서 지역·키워드 칩으로 고친다.
  */
 export default function AiAsk({ onParsed, initial = '', compact = false }: {
   onParsed: (q: string, result: AiParse) => void
-  /** 처음 칸에 넣어 둘 문장 (코스 순위 화면: 지금 말로 찾기 문장) */
+  /** 처음 칸에 넣어 둘 문장 (코스 순위 화면: 지금 AI 검색 문장) */
   initial?: string
   /** 코스 순위 화면: 설명 줄 없이 작게 */
   compact?: boolean
@@ -51,7 +51,7 @@ export default function AiAsk({ onParsed, initial = '', compact = false }: {
   return (
     <div className={compact ? 'ai-ask compact' : 'ai-ask'}>
       <p className="ai-label">
-        말로 찾기 <span className="ai-badge">실험 기능</span>
+        AI 검색 <span className="ai-badge">실험 기능</span>
       </p>
       <form className="add-search" onSubmit={submit}>
         <input
@@ -59,13 +59,17 @@ export default function AiAsk({ onParsed, initial = '', compact = false }: {
           value={q}
           maxLength={100}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="예: 비 오는 날 성수동에서 조용한 데이트, 5만원"
-          aria-label="원하는 데이트를 말로 적기"
+          placeholder="어떤 데이트를 원해요?"
+          aria-label="원하는 데이트를 문장으로 적기"
         />
         <button type="submit" disabled={busy || q.trim().length < 2}>
-          {busy ? '알아듣는 중…' : '알아듣기'}
+          {busy ? '찾는 중…' : '찾기'}
         </button>
       </form>
+      {/* 예시는 placeholder 에 넣으면 휴대폰·작은 칸에서 잘려서 칸 아래에 작게 */}
+      {!busy && !error && !(result && !compact) && (
+        <p className="muted small input-example">예: 비 오는 날 성수동에서 조용한 데이트, 5만원</p>
+      )}
       {busy && <p className="muted small">규칙으로 모자라면 서버 안 AI 가 거들어요. 20~40초 걸릴 수 있어요.</p>}
       {error && <p className="notice small">{error}</p>}
       {result && !compact && (

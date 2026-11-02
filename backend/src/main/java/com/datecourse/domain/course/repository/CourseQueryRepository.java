@@ -99,7 +99,7 @@ public class CourseQueryRepository {
     }
 
     /**
-     * 시도 전체나 전국에서 순위대로 (말로 찾기: "부산 바닷가", "바다 가고 싶어"). 거리는 없으므로 코스 점수 + 키워드 일치로만.
+     * 시도 전체나 전국에서 순위대로 (AI 검색: "부산 바닷가", "바다 가고 싶어"). 거리는 없으므로 코스 점수 + 키워드 일치로만.
      * sidos(비면 전국)와 sceneRegex 중 하나는 있어야 한다 (둘 다 없으면 전국 전체라 의미가 없음). "전라도"·"서해"처럼 시도 여럿도 된다
      */
     public List<Row> searchRegion(List<String> sidos, List<String> keywords, String sceneRegex, int limit, int offset) {

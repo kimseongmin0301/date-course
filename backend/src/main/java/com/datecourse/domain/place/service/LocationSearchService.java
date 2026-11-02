@@ -114,7 +114,7 @@ public class LocationSearchService {
     }
 
     /**
-     * 우리 데이터로만 찾는 지역 검색 (Geocoding 을 부르지 않음): "말로 찾기"가 문장의 낱말마다 지역인지 확인할 때.
+     * 우리 데이터로만 찾는 지역 검색 (Geocoding 을 부르지 않음): "AI 검색"가 문장의 낱말마다 지역인지 확인할 때.
      * 낱말마다 Geocoding 을 부르면 하루 한도를 낭비해서 따로 둔다. 2~40자가 아니면 빈 목록
      */
     public List<LocationResult> searchLocal(String query) {

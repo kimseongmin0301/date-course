@@ -15,7 +15,7 @@ export default function HomePage() {
   const [keywords, setKeywords] = useState<string[]>([])
   const [locating, setLocating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  /** 말로 찾기 문장 (코스 순위 화면의 AI 추천에 넘김) */
+  /** AI 검색 문장 (코스 순위 화면의 AI 추천에 넘김) */
   const [ask, setAsk] = useState<string | null>(null)
 
   function moveTo(lat: number, lng: number, radius: number) {
@@ -43,7 +43,7 @@ export default function HomePage() {
   }
 
   /**
-   * 말로 찾기 결과로 바로 코스 순위로 간다 ("이 지도에서 코스 찾기"를 또 누르지 않게).
+   * AI 검색 결과로 바로 코스 순위로 간다 ("이 지도에서 코스 찾기"를 또 누르지 않게).
    * 지역을 알아들었으면 그곳, 못 알아들었으면 지금 지도 가운데. 알아들은 내용은 순위 화면 위에 보여주고 거기서 칩으로 고친다
    */
   function applyParsed(q: string, r: AiParse) {

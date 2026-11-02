@@ -32,7 +32,7 @@ public class CourseController {
         return courseQueryService.search(courseQueryService.normalize(lat, lng, radius, keywords, page, scene));
     }
 
-    /** 시도 전체·전국 코스 순위 (말로 찾기 "부산 바닷가", "바다 가고 싶어"): sido 없으면 전국, scene 바다·산·물가. 둘 중 하나는 있어야 함 */
+    /** 시도 전체·전국 코스 순위 (AI 검색 "부산 바닷가", "바다 가고 싶어"): sido 없으면 전국, scene 바다·산·물가. 둘 중 하나는 있어야 함 */
     @GetMapping("/api/courses/region")
     public CourseSearchResponse searchRegion(@RequestParam(required = false) List<String> sido,
                                              @RequestParam(required = false) String scene,
