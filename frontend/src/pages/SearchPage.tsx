@@ -336,7 +336,7 @@ export default function SearchPage() {
         <p className="notice-soft small">
           {foodTotal > 0
             ? `${foodInfo.name} 가게가 든 코스 ${foodTotal}개를 위로 올렸어요.`
-            : `이 근처에는 ${foodInfo.name} 가게가 든 코스가 아직 없어요. 코스를 열면 "${foodInfo.name} 가게 넣기"로 근처 가게를 찾아 코스에 넣을 수 있어요.`}{' '}
+            : `이 근처에는 ${foodInfo.name} 가게가 든 코스가 아직 없어요. 코스를 열고 "근처 ${foodInfo.name} 가게 찾기"를 누르면 근처 가게를 찾아 코스에 넣을 수 있어요.`}{' '}
           <button type="button" className="link-button" onClick={dropFood}>
             메뉴 빼기
           </button>
