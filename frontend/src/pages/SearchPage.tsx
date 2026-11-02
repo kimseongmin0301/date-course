@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import AiPicks from '../components/AiPicks'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { api } from '../lib/api'
@@ -23,6 +24,8 @@ export default function SearchPage() {
   const lng = Number(params.get('lng'))
   const radius = Number(params.get('r') ?? 3000)
   const kwParam = params.get('kw')
+  /** 홈의 말로 찾기 문장 (있으면 AI 추천을 보여줌) */
+  const ask = params.get('q')
   const keywords = useMemo(() => parseKeywords(kwParam), [kwParam])
   const valid = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0
 
@@ -179,6 +182,7 @@ export default function SearchPage() {
     // 명소·주소는 반경이 좁으므로 코스는 1.5km 이상에서 찾는다 (지도는 검색 위치로 맞춘 뒤 반경에 맞게 넓어짐)
     const next = new URLSearchParams({ lat: l.lat.toFixed(5), lng: l.lng.toFixed(5), r: String(Math.max(1500, l.radius)) })
     if (keywords.length) next.set('kw', keywords.join(','))
+    if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
 
@@ -198,6 +202,7 @@ export default function SearchPage() {
     const c = map.getCenter()
     const next = new URLSearchParams({ lat: c.lat().toFixed(5), lng: c.lng().toFixed(5), r: String(visibleRadius(map)) })
     if (keywords.length) next.set('kw', keywords.join(','))
+    if (ask) next.set('q', ask)
     navigate(`/search?${next}`)
   }
 
@@ -220,6 +225,22 @@ export default function SearchPage() {
         <LocationSearch onPick={searchAt} />
         <KeywordPicker value={keywords} onChange={changeKeywords} compact />
       </div>
+
+      {ask && !loading && courses.length > 0 && (
+        <AiPicks
+          key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}`}
+          q={ask}
+          lat={lat}
+          lng={lng}
+          radius={radius}
+          keywords={keywords}
+          onShow={(id) => {
+            if (!courses.some((c) => c.id === id)) return false
+            setSelected(id)
+            return true
+          }}
+        />
+      )}
 
       {error && <p className="notice">{error}</p>}
       {widenedFrom && widenedFrom < radius && courses.length > 0 && (

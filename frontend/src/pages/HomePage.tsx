@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import AiAsk, { type AiParse } from '../components/AiAsk'
 import KeywordPicker from '../components/KeywordPicker'
 import LocationSearch from '../components/LocationSearch'
 import { AREAS } from '../lib/areas'
@@ -13,6 +14,8 @@ export default function HomePage() {
   const [keywords, setKeywords] = useState<string[]>([])
   const [locating, setLocating] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  /** 말로 찾기 문장 (코스 순위 화면의 AI 추천에 넘김) */
+  const [ask, setAsk] = useState<string | null>(null)
 
   function moveTo(lat: number, lng: number, radius: number) {
     if (map) jumpTo(map, lat, lng, zoomForRadius(radius))
@@ -38,6 +41,13 @@ export default function HomePage() {
     )
   }
 
+  /** 말로 찾기 결과를 지도와 키워드 칩에 넣는다 (사람이 고친 뒤 찾기) */
+  function applyParsed(q: string, r: AiParse) {
+    setAsk(q)
+    setKeywords(r.keywords)
+    if (r.area) moveTo(r.area.lat, r.area.lng, r.area.radius)
+  }
+
   function search() {
     if (!map) return
     const c = map.getCenter()
@@ -48,6 +58,7 @@ export default function HomePage() {
       r: String(Math.max(1500, visibleRadius(map))),
     })
     if (keywords.length) params.set('kw', keywords.join(','))
+    if (ask) params.set('q', ask)
     navigate(`/search?${params}`)
   }
 
@@ -55,6 +66,8 @@ export default function HomePage() {
     <section className="home">
       <h1>어디서, 어떤 데이트를 할까요?</h1>
       <p className="muted">지역을 찾거나 지도를 옮겨 고르고, 분위기를 고르면 데이트 코스를 순위대로 보여드려요.</p>
+
+      <AiAsk onParsed={applyParsed} />
 
       <h2 className="section-title">지역</h2>
       <LocationSearch onPick={(l) => moveTo(l.lat, l.lng, l.radius)} />

@@ -54,6 +54,8 @@
 │     │  │                         CourseController /api/courses·/api/courses/{id}·…/alternatives·/api/places/nearby·/api/places/naver,
 │     │  │                         PlanController·PlanService·PlanRepository (내 일정 저장 /api/plans, saved_plan) (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  ├─ ai/                    실험 기능: 말로 찾기·AI 추천 (AiController /api/ai/parse·/recommend, AiParseService, AiRecommendService,
+│     │  │                         CourseEmbeddingService(코스 임베딩·메모리 색인), AiGate(한 번에 하나·한도), client/OllamaClient, util/QueryRules)
 │     │  ├─ account/               다른 기기에서도 보기: AccountController /api/account·/login·/logout, AccountService(코드·잠금·일정 옮기기),
 │     │  │                         AccountRepository(plan_account), util/PasswordHasher(PBKDF2)
 │     │  ├─ suggestion/            이용자가 알려 준 가게 (SuggestionService: 모으기·3명이면 공개·관리자 승인, SuggestionRepository,
@@ -126,6 +128,7 @@ npm run lint
 | `V2__seed_keyword.sql` | 키워드 17개 (분위기 5, 활동 7, 실내외 2, 예산 3) | ✅ |
 | `V3__place_badge.sql` | `place_badge` (공공기관 지정 표시: 모범음식점). 엔티티 없이 JDBC 로만 씀 | ✅ |
 | `V4__saved_plan.sql` | `saved_plan` (내 일정 저장: 방문자 쿠키 id·코스마다 하나, steps JSONB 에 place id·머무는 시간·고정 도착). 엔티티 없이 JDBC | ✅ |
+| `V7__course_embedding.sql` | `course_embedding` (AI 추천용 코스 임베딩: 768차원 real[], 글 해시). 엔티티 없이 JDBC | ✅ |
 | `V6__plan_account.sql` | `plan_account` (다른 기기에서도 보기: 코드 8자·방문자 id·비밀번호 해시, 연락처 없음). 엔티티 없이 JDBC | ✅ |
 | `V5__place_suggestion.sql` | `place_suggestion` (이용자가 알려 준 가게: 직접 넣은 곳을 모아 3명이거나 관리자 승인이면 장소 찾기에 공개). 엔티티 없이 JDBC | ✅ |
 
@@ -150,6 +153,9 @@ npm run lint
 | `healing-room:date-course:address:{주소}` | 주소 찾기 결과 (일정에 직접 넣을 가게, Geocoding) | 1일 (못 찾았으면 10분) |
 | `healing-room:date-course:location:{검색어}` | 지역 검색 결과 (지역·명소·주소) | 1일 (못 찾았으면 10분: 키를 막 넣었거나 잠깐 오류여도 하루 내내 빈 결과가 나가지 않게) |
 | `healing-room:date-course:account-fail:code:{코드}`, `…:account-fail:ip:{IP}` | 코드 로그인 틀린 수 (코드 5번·IP 20번이면 잠금) | 15분 |
+| `healing-room:date-course:ai-parse:{문장 해시}`, `…:ai-rec:{문장 해시}:{검색 조건}:{뺀 코스}` | 말로 찾기·AI 추천 결과 (문장은 저장하지 않음) | 1일 (AI 가 바빴으면 5~10분) |
+| `healing-room:date-course:ai-count:{날짜}`, `…:ai-ip:{IP}:{시}` | AI 부른 수 (하루 500·IP 한 시간 20) | 2일 / 1시간 |
+| `healing-room:date-course:location-local:{검색어}` | Geocoding 없이 우리 데이터로만 찾은 지역 (말로 찾기) | 1일 (없으면 10분) |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
@@ -171,6 +177,7 @@ cd backend
 ./gradlew bootRun --args="--collect=courses"         # 자동 코스 다시 만들기 + 순위 점수
 ./gradlew bootRun --args="--collect=scores"          # 순위 점수만 (매일 04:30 에도 저절로 돔)
 ./gradlew bootRun --args="--collect=model --path=../data/model"  # 모범음식점 CSV → place_badge, 그 뒤 코스·점수 다시
+./gradlew bootRun --args="--collect=embeddings"                # AI 추천용 코스 임베딩 (글이 바뀐 것만, 서버 Ollama 로 터널 필요)
 ./gradlew bootRun --args="--collect=suggestions"               # 이용자가 알려 준 가게 목록 (기다리는 것·공개된 것)
 ./gradlew bootRun --args="--collect=suggestions --approve=12"  # 관리자 승인 → 장소 찾기에 공개 (--reject=12 는 거절)
 # tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 저절로 돈다
@@ -221,6 +228,8 @@ cd backend
 | POST | `/api/account/login` | `{ code, password }` → `{ code, moved }`. 맞으면 이 브라우저의 일정을 계정으로 옮기고(같은 코스는 나중에 저장한 쪽) 쿠키를 계정 id 로 바꿈. 틀리면 401(없는 코드도 같은 말·같은 시간), 코드 5번·IP 20번 틀리면 15분 429 |
 | DELETE | `/api/account` | 코드 지우기 `{ password }` → 204 (일정은 이 브라우저에 남음). 코드 없음 404, 비밀번호 틀림 401(로그인과 같이 세고 잠금) |
 | POST | `/api/account/logout` | 이 브라우저 쿠키를 새 무작위 id 로 → 204 (계정 일정은 그대로) |
+| POST | `/api/ai/parse` | 실험 기능. 말로 찾기 `{ q }`(2~100자) → `{ area, keywords, aiUsed, understood }` (area 는 `/api/locations` 결과 하나 또는 null, keywords 는 실내외·예산 포함 3개까지). 규칙 먼저, 모자라면 Ollama |
+| POST | `/api/ai/recommend` | 실험 기능. AI 추천 `{ q, lat, lng, radius, kw, exclude? }` → `{ ai, message, candidates, picks: [{ courseId, title, sigungu, totalMinutes, stepNames, reason, inRanking }] }`. 후보 안에서만 고르고 검수, 바쁘면 `ai:false` + 순위 위 3개. IP 한 시간 20번 넘으면 429 |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
@@ -265,6 +274,15 @@ cd backend
 - 관리자 승인·거절은 아직 화면이 없어 명령으로: `--collect=suggestions`, `--approve=ID`, `--reject=ID` (6절). 방문자 id 는 앞 8자리만 보여줍니다.
 - 공개된 가게는 **장소 찾기에만** 나오고(이유 "이용자가 알려 준 곳") 자동 코스·순위에는 쓰지 않습니다. 같은 가게가 우리 데이터(다음 분기 상가정보 등)에 들어오면 장소 찾기에서 저절로 빠집니다. 장소 찾기 결과는 10분 캐시라 공개된 뒤 같은 검색어에는 최대 10분 늦게 나옵니다.
 - 쿠키를 지우면 한 사람이 여러 방문자로 보일 수 있어 3명 기준은 완벽하지 않습니다(장난 방지 수준).
+
+### 말로 찾기 · AI 추천 (실험 기능, `domain/ai`)
+- 서버 안 **Ollama**(포트폴리오 챗봇과 같은 것: GTX 1650 4GB, 답 `gemma3:4b`, 임베딩 `embeddinggemma`)만 씁니다. 키·외부 호출 없음, 사용자 문장은 밖으로 나가지 않습니다. 짧은 답 하나 약 15~20초, AI 추천은 후보가 길어 약 30초(운영 측정).
+- **말로 찾기**(`POST /api/ai/parse`, `AiParseService`): ① 규칙(`util/QueryRules`)이 먼저: 비·눈·추위·더위 → 실내, "○만원" → 예산, 비슷한 말 사전 → 분위기·활동, 조사를 뗀 낱말 중 동·역·구… 로 끝나는 말부터 우리 지역 데이터로 확인(`LocationSearchService.searchLocal`: Geocoding 안 부름). ② 지역이나 분위기·활동을 못 알아들었을 때만 Ollama. ③ AI 답 검수: 지역은 원래 문장에 그 글자가 있을 때만, 키워드는 정해진 17개 이름만, 규칙이 정한 실내외·예산은 AI 가 못 바꿈. 결과는 홈의 지도·키워드 칩에 넣고 사람이 고칩니다. 작은 모델이 "비 오는 날"을 야외로, "5만원"을 저예산으로 잡은 것을 보고 규칙을 먼저 두었습니다.
+- **AI 추천**(`POST /api/ai/recommend`, `AiRecommendService`, RAG): 검색 = 지금 순위 첫 쪽 12개 + 요청 문장과 비슷한 코스(임베딩, 같은 반경, 최대 8개) → 후보 최대 20개. 생성 = Ollama 에게 후보 번호·실제 정보(제목·지역·단계 장소(업종)·키워드)만 주고 3개까지 고르게. 검수 = 후보에 없는 번호·중복은 버리고, 이유에 다른 후보의 장소 이름이나 지어낸 가격·시간·거리("2만원", "10시")가 있으면 이유만 뺍니다. 실패·바쁨이면 순위 위 3개(`ai=false`, "지금은 AI 가 바빠서…"). "다시 추천"은 본 코스를 `exclude` 로 넘깁니다. 코스 순위 화면은 주소에 `q`(말로 찾기 문장)가 있을 때만 이 칸을 보여주고, **누를 때만** 부릅니다.
+- **코스 임베딩**(`CourseEmbeddingService`, `course_embedding` V7): 코스를 "지역 제목. 장소(업종) → …. 키워드: …" 글로 만들어 32개씩 임베딩(서버 GPU 로 약 0.7초). 만들기는 수집기 `--collect=embeddings`(코스를 다시 만들 때도 저절로, 글 해시가 같으면 건너뜀). 로컬에서 돌릴 때는 서버 Ollama 로 터널: `ssh -N -L 11434:127.0.0.1:11434 ai-server`. 운영 앱은 DB 의 벡터만 메모리에 올려(1만여 개 × 768 ≈ 36MB, 켜질 때·6시간마다) 내적으로 비교합니다. pgvector 는 설치하지 않았습니다.
+- **문(`AiGate`)**: 포트폴리오 챗봇이 먼저라 이 서버에서는 한 번에 하나(8초 기다려 차례가 안 오면 바쁨 → 순위로), 사이트 하루 500번·IP 한 시간 20번(넘으면 429), Redis 가 안 되면 부르지 않음.
+- **개인정보**: 문장은 저장하지 않고 같은 문장 결과만 해시 키로 하루(`ai-parse:{해시}`, `ai-rec:{해시}:…`), 로그에도 문장을 남기지 않습니다(후보 수·성공 여부만). AI 추천 화면 주소의 `q` 는 새로고침 시 nginx 접속 기록(14일)에 남을 수 있어 방침에 적었습니다.
+- 설정: `AI_ENABLED`(기본 true), `OLLAMA_URL`(기본 http://127.0.0.1:11434), `AI_CHAT_MODEL`, `AI_EMBED_MODEL`, `AI_TIMEOUT_SECONDS`(45), `AI_DAILY_LIMIT`(500), `AI_IP_HOURLY_LIMIT`(20). 키는 없습니다.
 
 ## 8. 코드 스타일
 
@@ -324,6 +342,7 @@ cd backend
 - [x] 다른 기기에서도 보기: 코드 + 비밀번호(V6), 로그인하면 이 브라우저 일정을 계정으로 합치기
 - [x] 머무는 시간 입력: 휴대폰에서 다 지우고 새로 쓰기, −10/+10
 - [x] 개인정보처리방침(`/privacy`, 2026-10-29 시행), 코드 지우기
+- [x] 실험 기능: 말로 찾기(규칙 + Ollama)·AI 추천(코스 임베딩 + 후보 안에서 고르기, V7) (2026-11-02)
 - [ ] 좋아요·다녀왔어요(반응), 관리자 화면(제안 승인)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr

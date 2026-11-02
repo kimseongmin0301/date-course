@@ -113,7 +113,24 @@ public class LocationSearchService {
                 });
     }
 
+    /**
+     * 우리 데이터로만 찾는 지역 검색 (Geocoding 을 부르지 않음): "말로 찾기"가 문장의 낱말마다 지역인지 확인할 때.
+     * 낱말마다 Geocoding 을 부르면 하루 한도를 낭비해서 따로 둔다. 2~40자가 아니면 빈 목록
+     */
+    public List<LocationResult> searchLocal(String query) {
+        String q = query == null ? "" : String.join(" ", query.strip().split("\\s+"));
+        if (q.length() < 2 || q.length() > 40) {
+            return List.of();
+        }
+        return cache.getOrLoad("location-local:" + q, (List<LocationResult> r) -> r.isEmpty() ? EMPTY_TTL : CACHE_TTL,
+                new TypeReference<List<LocationResult>>() { }, () -> load(q, false));
+    }
+
     private List<LocationResult> load(String q) {
+        return load(q, true);
+    }
+
+    private List<LocationResult> load(String q, boolean withGeocode) {
         Query query = parse(q);
         String term = query.term().replace(" ", "");
         String base = areaPrefix(query.term());
@@ -130,7 +147,7 @@ public class LocationSearchService {
         if (normalized.length() >= 2) {
             result.addAll(repository.landmarks(normalized, query.sido(), 5));
         }
-        if (geocoder.configured() && geocodeAllowed()) {
+        if (withGeocode && geocoder.configured() && geocodeAllowed()) {
             for (NaverGeocodeClient.Address a : geocoder.geocode(q)) {
                 boolean hasRoad = !a.roadAddress().isEmpty();
                 result.add(new LocationResult("address", hasRoad ? a.roadAddress() : a.jibunAddress(),

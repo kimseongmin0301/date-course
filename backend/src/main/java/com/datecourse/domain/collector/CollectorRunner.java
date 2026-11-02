@@ -15,6 +15,7 @@ import com.datecourse.domain.collector.service.ModelRestaurantImporter;
 import com.datecourse.domain.collector.service.PlaceKeywordTagger;
 import com.datecourse.domain.collector.service.SbizImporter;
 import com.datecourse.domain.collector.service.TourCollector;
+import com.datecourse.domain.ai.service.CourseEmbeddingService;
 import com.datecourse.domain.course.service.AutoCourseService;
 import com.datecourse.domain.course.service.CourseScoreService;
 import com.datecourse.domain.suggestion.repository.SuggestionRepository;
@@ -30,6 +31,7 @@ import com.datecourse.domain.suggestion.service.SuggestionService;
  *   ./gradlew bootRun --args="--collect=courses"         자동 코스 다시 만들기 + 순위 점수
  *   ./gradlew bootRun --args="--collect=scores"          코스 순위 점수만 다시 계산 (매일 새벽에도 저절로 돔)
  *   ./gradlew bootRun --args="--collect=model --path=../data/model"  모범음식점 CSV → 지정 표시, 그 뒤 코스·점수 다시
+ *   ./gradlew bootRun --args="--collect=embeddings"                  AI 추천용 코스 임베딩 (글이 바뀐 코스만, 서버 Ollama 필요)
  *   ./gradlew bootRun --args="--collect=suggestions"                 이용자가 알려 준 가게 (기다리는 것·공개된 것) 보기
  *   ./gradlew bootRun --args="--collect=suggestions --approve=12"    관리자 승인 → 장소 찾기에 공개 (--reject=12 는 거절)
  * tour·sbiz 수집이 끝나면 키워드 → 자동 코스 → 순위 점수까지 다시 만든다.
@@ -46,11 +48,13 @@ public class CollectorRunner implements ApplicationRunner {
     private final CourseScoreService scores;
     private final ModelRestaurantImporter model;
     private final SuggestionService suggestions;
+    private final CourseEmbeddingService embeddings;
     private final ConfigurableApplicationContext context;
 
     public CollectorRunner(TourCollector tour, SbizImporter sbiz, PlaceKeywordTagger tagger, AutoCourseService courses,
                            CourseScoreService scores, ModelRestaurantImporter model, SuggestionService suggestions,
-                           ConfigurableApplicationContext context) {
+                           CourseEmbeddingService embeddings, ConfigurableApplicationContext context) {
+        this.embeddings = embeddings;
         this.suggestions = suggestions;
         this.tour = tour;
         this.sbiz = sbiz;
@@ -101,8 +105,9 @@ public class CollectorRunner implements ApplicationRunner {
                     rebuildCourses();
                 }
                 case "suggestions" -> suggestions(args);
+                case "embeddings" -> embeddings.refresh();
                 default -> {
-                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores, model, suggestions)", what.get(0));
+                    log.error("알 수 없는 수집 대상: {} (tour, sbiz, keywords, courses, scores, model, suggestions, embeddings)", what.get(0));
                     exitCode = 2;
                 }
             }
@@ -140,9 +145,11 @@ public class CollectorRunner implements ApplicationRunner {
         rebuildCourses();
     }
 
+    /** 코스를 다시 만들면 점수와 AI 추천용 임베딩(글이 바뀐 것만, Ollama 에 닿지 않으면 건너뜀)도 */
     private void rebuildCourses() {
         courses.rebuildAll();
         scores.recalculate();
+        embeddings.refresh();
     }
 
     private static Integer intOption(ApplicationArguments args, String name) {

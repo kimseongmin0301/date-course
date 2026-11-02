@@ -1125,3 +1125,49 @@ button:disabled {
 .site-footer a {
   color: var(--muted);
 }
+
+/* 실험 기능: 말로 찾기 · AI 추천 */
+.ai-ask,
+.ai-picks {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.ai-label {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.ai-badge {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ai-understood {
+  margin: 8px 0 0;
+}
+
+.ai-pick-list {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.ai-pick-list li {
+  margin-bottom: 10px;
+}
+
+.ai-pick-list p {
+  margin: 2px 0;
+}
+
+.ai-reason {
+  color: var(--text);
+}

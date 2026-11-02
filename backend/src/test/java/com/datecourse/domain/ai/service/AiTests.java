@@ -1,0 +1,95 @@
+package com.datecourse.domain.ai.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.junit.jupiter.api.Test;
+
+import com.datecourse.domain.ai.repository.AiRepository;
+import com.datecourse.domain.ai.util.QueryRules;
+
+import tools.jackson.databind.json.JsonMapper;
+
+/** 말로 찾기 규칙, AI 답 검수, 코스 임베딩 글·비슷한 코스 찾기 (Ollama·DB 없이) */
+class AiTests {
+
+    JsonMapper json = JsonMapper.builder().build();
+
+    @Test
+    void 규칙은_날씨_예산_비슷한_말_지역_후보를_알아듣는다() {
+        QueryRules.Parsed p = QueryRules.parse("비 오는 토요일 저녁에 성수동에서 조용하게 데이트, 둘이 5만원 정도");
+
+        assertThat(p.setting()).isEqualTo("indoor");          // 비 → 실내 (작은 모델은 야외로 잘못 잡았음)
+        assertThat(p.budget()).isEqualTo("budget-mid");       // 5만원 → 3~7만원
+        assertThat(p.keywords()).containsExactly("quiet");
+        assertThat(p.areaCandidates()).first().isEqualTo("성수동");   // 조사 "에서"를 떼고, 동으로 끝나는 말 먼저
+    }
+
+    @Test
+    void 규칙_예산과_실내외의_다른_말() {
+        assertThat(QueryRules.parse("가성비 좋은 야외 데이트").budget()).isEqualTo("budget-low");
+        assertThat(QueryRules.parse("가성비 좋은 야외 데이트").setting()).isEqualTo("outdoor");
+        assertThat(QueryRules.parse("기념일이라 고급스럽게 10만원").budget()).isEqualTo("budget-high");
+        assertThat(QueryRules.parse("기념일이라 고급스럽게 10만원").keywords()).contains("romantic");
+        assertThat(QueryRules.parse("홍대 방탈출하고 야경").keywords()).containsExactly("play", "night-view");
+    }
+
+    @Test
+    void AI_답은_원래_문장에_있는_지역과_정해진_키워드만_받는다() throws Exception {
+        Map<String, com.datecourse.domain.keyword.dto.KeywordResponse> byName = Map.of(
+                "조용", new com.datecourse.domain.keyword.dto.KeywordResponse("quiet", "조용", "mood"),
+                "전시·문화", new com.datecourse.domain.keyword.dto.KeywordResponse("exhibition", "전시·문화", "activity"),
+                "실내", new com.datecourse.domain.keyword.dto.KeywordResponse("indoor", "실내", "setting"),
+                "3~7만원", new com.datecourse.domain.keyword.dto.KeywordResponse("budget-mid", "3~7만원", "budget"));
+        var ai = json.readTree("""
+                {"area":"강남","keywords":["조용","전시·문화","미식가"],"setting":"실내","budget":"3~7만원"}""");
+
+        var accepted = com.datecourse.domain.ai.service.AiTestAccess.accept(ai, "성수동 조용한 전시 데이트, 실내에서 3만원 넘게", byName);
+
+        assertThat(accepted.area()).isNull();                                  // 문장에 없는 "강남"은 버림
+        assertThat(accepted.moods()).containsExactly("quiet", "exhibition");   // 목록에 없는 "미식가"는 버림
+        assertThat(accepted.setting()).isEqualTo("indoor");
+        assertThat(accepted.budget()).isEqualTo("budget-mid");
+
+        // 문장에 실내외·돈 이야기가 없으면 AI 가 정해도 받지 않는다
+        var guessed = com.datecourse.domain.ai.service.AiTestAccess.accept(ai, "첫 데이트라 성수동 조용한 곳", byName);
+        assertThat(guessed.setting()).isNull();
+        assertThat(guessed.budget()).isNull();
+    }
+
+    @Test
+    void AI_추천은_후보_번호만_받고_이유를_검수한다() throws Exception {
+        var a = com.datecourse.domain.ai.service.AiTestAccess.candidate(1, "도을 데이트 코스", List.of("수눌음", "도을", "낭뜰에쉼팡"));
+        var b = com.datecourse.domain.ai.service.AiTestAccess.candidate(2, "강동 바다 코스", List.of("강동바다도서관", "에르벵커피하우스", "가고파"));
+        var answer = json.readTree("""
+                {"picks":[
+                  {"n":2,"reason":"바다 앞 도서관과 카페로 조용해요"},
+                  {"n":9,"reason":"후보에 없는 번호"},
+                  {"n":2,"reason":"같은 번호 두 번"},
+                  {"n":1,"reason":"에르벵커피하우스에서 쉬기 좋아요"}]}""");
+
+        var picks = com.datecourse.domain.ai.service.AiTestAccess.accept(answer, List.of(a, b));
+
+        assertThat(picks).extracting(p -> p.courseId()).containsExactly(2L, 1L);
+        assertThat(picks.get(0).reason()).isEqualTo("바다 앞 도서관과 카페로 조용해요");
+        assertThat(picks.get(1).reason()).isNull();    // 다른 코스(2번)의 가게 이름을 1번 이유로 씀 → 이유만 뺌
+        assertThat(com.datecourse.domain.ai.service.AiTestAccess.checkReason("2만원이면 충분해요", a, List.of(a, b))).isNull();   // 지어낸 가격
+    }
+
+    @Test
+    void 코스_임베딩_글과_비슷한_코스_찾기() {
+        var text = com.datecourse.domain.ai.service.AiTestAccess.text(new AiRepository.CourseText(13273, "도을 데이트 코스", "제주특별자치도", "제주시", 166,
+                List.of("수눌음|shop|기념품점", "도을|cafe|카페", "용두암|attraction|VE070600"), "감성, 실내"));
+        assertThat(text).isEqualTo("제주특별자치도 제주시 도을 데이트 코스. 수눌음(기념품점) → 도을(카페) → 용두암(관광명소). 키워드: 감성, 실내.");
+
+        var service = com.datecourse.domain.ai.service.AiTestAccess.indexOf(List.of(
+                new AiRepository.Stored(1, 37.50, 127.00, new float[] {1, 0}),
+                new AiRepository.Stored(2, 37.50, 127.00, new float[] {0.6f, 0.8f}),
+                new AiRepository.Stored(3, 35.10, 129.00, new float[] {1, 0})));   // 멀리 있는 코스
+        assertThat(service.similar(new float[] {1, 0}, 37.5, 127.0, 3000, Set.of(), 5)).containsExactly(1L, 2L);
+        assertThat(service.similar(new float[] {1, 0}, 37.5, 127.0, 3000, Set.of(1L), 5)).containsExactly(2L);
+    }
+}
