@@ -16,7 +16,10 @@ import { useMap } from '../map/context'
 export default function SearchPage() {
   const [params, setParams] = useSearchParams()
   // 근처에 코스가 없어 반경을 넓혔으면 원래 반경을 기억해 안내한다
-  const widenedFrom = (useLocation().state as { widenedFrom?: number } | null)?.widenedFrom
+  const navState = useLocation().state as { widenedFrom?: number; understood?: string; aiUsed?: boolean } | null
+  const widenedFrom = navState?.widenedFrom
+  // 말로 찾기로 들어왔을 때 알아들은 내용 (반경을 넓히며 state 가 바뀌어도 처음 것을 둔다)
+  const [understood] = useState(() => (navState?.understood ? { text: navState.understood, aiUsed: !!navState.aiUsed } : null))
   const navigate = useNavigate()
   const { map, overlay } = useMap()
 
@@ -226,6 +229,12 @@ export default function SearchPage() {
         <KeywordPicker value={keywords} onChange={changeKeywords} compact />
       </div>
 
+      {ask && understood && (
+        <p className="notice-soft small">
+          "{ask}" → 이렇게 이해했어요: <strong>{understood.text}</strong>
+          {understood.aiUsed && ' (AI 가 일부를 거들었어요)'}. 틀렸으면 위 지역 검색이나 키워드로 고쳐 주세요.
+        </p>
+      )}
       {ask && !loading && courses.length > 0 && (
         <AiPicks
           key={`${ask}|${lat}|${lng}|${radius}|${keywords.join(',')}`}

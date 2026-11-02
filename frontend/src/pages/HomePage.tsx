@@ -41,11 +41,23 @@ export default function HomePage() {
     )
   }
 
-  /** 말로 찾기 결과를 지도와 키워드 칩에 넣는다 (사람이 고친 뒤 찾기) */
+  /**
+   * 말로 찾기 결과로 바로 코스 순위로 간다 ("이 지도에서 코스 찾기"를 또 누르지 않게).
+   * 지역을 알아들었으면 그곳, 못 알아들었으면 지금 지도 가운데. 알아들은 내용은 순위 화면 위에 보여주고 거기서 칩으로 고친다
+   */
   function applyParsed(q: string, r: AiParse) {
     setAsk(q)
     setKeywords(r.keywords)
-    if (r.area) moveTo(r.area.lat, r.area.lng, r.area.radius)
+    const c = r.area ? { lat: r.area.lat, lng: r.area.lng } : map ? { lat: map.getCenter().lat(), lng: map.getCenter().lng() } : null
+    if (!c) return
+    const params = new URLSearchParams({
+      lat: c.lat.toFixed(5),
+      lng: c.lng.toFixed(5),
+      r: String(Math.max(1500, r.area ? r.area.radius : map ? visibleRadius(map) : 3000)),
+    })
+    if (r.keywords.length) params.set('kw', r.keywords.join(','))
+    params.set('q', q)
+    navigate(`/search?${params}`, { state: { understood: r.understood, aiUsed: r.aiUsed } })
   }
 
   function search() {

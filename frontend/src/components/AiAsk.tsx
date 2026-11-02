@@ -11,7 +11,7 @@ export interface AiParse {
 
 /**
  * 말로 찾기 (실험 기능): "비 오는 날 성수동 조용한 데이트, 5만원" → 지역·키워드 칩.
- * 규칙이 먼저 알아듣고 모자라면 서버 안 AI 가 거든다(그때는 20~40초). 알아들은 조건은 아래 키워드 칩에 넣어 사람이 고친다.
+ * 규칙이 먼저 알아듣고 모자라면 서버 안 AI 가 거든다(그때는 20~40초). 알아들으면 바로 코스 순위로 가고, 거기서 지역·키워드 칩으로 고친다.
  */
 export default function AiAsk({ onParsed }: { onParsed: (q: string, result: AiParse) => void }) {
   const [q, setQ] = useState('')
@@ -62,7 +62,7 @@ export default function AiAsk({ onParsed }: { onParsed: (q: string, result: AiPa
           이렇게 이해했어요: <strong>{result.understood}</strong>
           {result.aiUsed && <span className="muted"> (AI 가 일부를 거들었어요)</span>}
           <br />
-          <span className="muted">아래 지도와 키워드에 넣었어요. 틀렸으면 고친 뒤 코스를 찾아 주세요.</span>
+          <span className="muted">이 조건으로 코스 순위를 바로 보여드려요. 틀렸으면 거기서 고쳐 주세요.</span>
         </p>
       )}
     </div>
