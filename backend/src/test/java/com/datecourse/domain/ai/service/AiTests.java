@@ -115,9 +115,14 @@ class AiTests {
 
         var picks = com.datecourse.domain.ai.service.AiTestAccess.accept(answer, List.of(a, b));
 
-        assertThat(picks).extracting(p -> p.courseId()).containsExactly(2L, 1L);
-        assertThat(picks.get(0).reason()).isEqualTo("바다 앞 도서관과 카페로 조용해요");
-        assertThat(picks.get(1).reason()).isNull();    // 다른 코스(2번)의 가게 이름을 1번 이유로 씀 → 이유만 뺌
+        assertThat(picks).extracting(p -> p.courseId()).containsExactly(1L, 2L);   // 순위(후보 번호) 순서로
+        assertThat(picks.get(1).reason()).isEqualTo("바다 앞 도서관과 카페로 조용해요");
+        assertThat(picks.get(0).reason()).isNull();    // 다른 코스(2번)의 가게 이름을 1번 이유로 씀 → 이유만 뺌
+
+        // 번호만 준 답([2, 1])도 받는다 (이유 없이)
+        var bare = com.datecourse.domain.ai.service.AiTestAccess.accept(json.readTree("{\"picks\":[2, 1, 9]}"), List.of(a, b));
+        assertThat(bare).extracting(p -> p.courseId()).containsExactly(1L, 2L);
+        assertThat(bare).allMatch(p -> p.reason() == null);
         assertThat(com.datecourse.domain.ai.service.AiTestAccess.checkReason("2만원이면 충분해요", a, List.of(a, b))).isNull();   // 지어낸 가격
         // 다른 후보 장소 이름의 일부("송도해상케이블카(스카이)" 안의 "송도해상케이블카")를 조사를 붙여 써도 걸러낸다
         var c = com.datecourse.domain.ai.service.AiTestAccess.candidate(3, "송도 코스", List.of("송도해상케이블카(스카이)", "카페"));

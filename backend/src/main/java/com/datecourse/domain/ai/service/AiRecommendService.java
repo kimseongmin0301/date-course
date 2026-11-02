@@ -34,7 +34,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
 
 /**
- * AI 추천 (실험 기능, RAG): 요청 문장에 맞는 코스를 "후보 안에서만" 고른다.
+ * AI 추천 (실험 기능, RAG): 요청 문장에 맞는 코스를 "후보 안에서만" 고른다. 사용자가 누구인지 모르므로(첫 데이트·오래된 커플…)
+ * 추측하지 않고, 조건에 맞는 것 중 인기 있을 법한(순위가 높은) 코스를 먼저 고르게 한다.
  *   1. 검색(Retrieval): 지금 순위 첫 쪽 + 요청 문장과 비슷한 코스(임베딩, 같은 반경 안)를 합쳐 후보 최대 MAX_CANDIDATES 개
  *   2. 생성(Generation): Ollama 에게 후보 번호·실제 정보만 주고 최대 3개를 고르게 한다 (AiGate: 한 번에 하나, 한도)
  *   3. 검수: 후보에 없는 번호는 버리고, 이유에 다른 후보의 장소 이름이나 지어낸 가격·시간이 있으면 이유만 뺀다
@@ -46,8 +47,9 @@ public class AiRecommendService {
 
     private static final Logger log = LoggerFactory.getLogger(AiRecommendService.class);
 
-    static final int MAX_CANDIDATES = 20;
-    static final int FROM_RANKING = 12;
+    /** 후보는 순위 위쪽만 (작은 모델이 "앞 번호 우선"을 잘 안 지켜서, 무엇을 골라도 인기 있을 법한 코스가 되게) */
+    static final int MAX_CANDIDATES = 12;
+    static final int FROM_RANKING = 8;
     static final int MAX_PICKS = 3;
     static final int REASON_MAX = 60;
     static final String BUSY = "지금은 AI 가 바빠서 순위 위에서 골랐어요. 잠시 뒤에 다시 눌러 보세요.";
@@ -157,13 +159,17 @@ public class AiRecommendService {
         List<AiRecommendResponse.Pick> out = new ArrayList<>();
         Set<Integer> used = new LinkedHashSet<>();
         for (JsonNode p : answer.path("picks")) {
-            int n = p.path("n").asInt(0);
+            // 작은 모델이 {"n":1,…} 대신 번호만([10, 19, 20]) 줄 때도 있다 (그때는 이유 없이)
+            int n = p.isNumber() || p.isString() ? p.asInt(0) : p.path("n").asInt(0);
             if (n < 1 || n > candidates.size() || !used.add(n) || out.size() >= MAX_PICKS) {
                 continue;
             }
             Candidate c = candidates.get(n - 1);
-            out.add(pick(c, checkReason(p.path("reason").asString(""), c, candidates)));
+            out.add(pick(c, p.isObject() ? checkReason(p.path("reason").asString(""), c, candidates) : null));
         }
+        // 화면에는 순위(인기) 순서로: 후보 번호가 앞일수록 순위가 높다
+        List<Long> order = candidates.stream().map(Candidate::id).toList();
+        out.sort(java.util.Comparator.comparingInt(x -> order.indexOf(x.courseId())));
         return out;
     }
 
@@ -239,12 +245,15 @@ public class AiRecommendService {
 
     static String prompt(String q, List<Candidate> candidates) {
         StringBuilder sb = new StringBuilder("""
-                너는 데이트 코스를 골라 주는 도우미다. 아래 후보 코스 중에서만 요청에 가장 잘 맞는 코스를 최대 3개 골라라.
+                너는 데이트 코스를 골라 주는 도우미다. 아래 후보 코스 중에서만 요청에 맞는 코스를 최대 3개 골라라.
+                후보는 인기·품질이 높은 순서로 번호가 매겨져 있다(앞 번호일수록 많은 사람이 좋아할 만한 코스).
                 규칙:
-                - 후보 번호(n)만 쓴다. 후보에 없는 코스는 만들지 않는다.
-                - 이유(reason)는 그 후보에 적힌 장소·업종·키워드만 근거로 한국어 한 문장, 40자 안으로 쓴다.
+                - 요청과 맞는 정도가 비슷하면 앞 번호를 고른다. 요청에 조건이 거의 없으면 앞 번호에서 고른다.
+                - 요청한 사람이 누구인지(첫 데이트, 오래 만난 커플, 나이 등) 추측하지 않는다. 이유에도 쓰지 않는다.
+                - 아래 후보에 있는 코스만 고른다. 새 코스를 만들지 않는다.
+                - 코스마다 n(후보 번호)과 reason(이유)을 함께 쓴다. 이유는 그 후보에 적힌 장소·업종·키워드만 근거로 한국어 한 문장, 40자 안.
                 - 가격, 영업시간, 리뷰, 거리처럼 후보에 없는 사실은 지어내지 않는다.
-                JSON 형식: {"picks":[{"n":번호,"reason":"이유"}]}
+                답 예시(이 모양 그대로): {"picks":[{"n":1,"reason":"해변 산책 뒤 바다 앞 카페로 이어져요"},{"n":2,"reason":"전망대에서 노을을 보고 식사해요"}]}
                 요청: """).append(q).append("\n후보:\n");
         for (int i = 0; i < candidates.size(); i++) {
             Candidate c = candidates.get(i);
