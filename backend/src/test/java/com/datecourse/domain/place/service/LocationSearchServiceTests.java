@@ -164,6 +164,11 @@ class LocationSearchServiceTests {
             assertThat(r.placeId()).isNull();
             assertThat(r.category()).isEqualTo("restaurant");
         });
+
+        // 이름이 똑같아도 상권·거리 같은 항목은 가게가 아니라 지역
+        given(naver.search("안양일번가")).willReturn(List.of(
+                new NaverLocalSearchClient.Item("안양일번가", "쇼핑,유통>상가,아케이드", "경기도 안양시 만안구 안양동", "", 37.40, 126.92)));
+        assertThat(service.searchNamed("안양일번가")).singleElement().satisfies(r -> assertThat(r.kind()).isEqualTo("named"));
     }
 
     @Test

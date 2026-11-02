@@ -58,7 +58,7 @@ public class LocationSearchService {
     /**
      * 상권·건물 이름을 네이버 지역 검색으로 ("안양일번가" → "KFC 안양일번가점" 자리). 가게 이름에 검색어가 들어 있는 첫 곳만 쓴다
      * (검색어와 상관없는 가게로 지도를 옮기지 않게). 지도에는 그 둘레 800m. 키가 없거나 하루 한도를 넘었으면 빈 목록.
-     * 이름이 검색어와 똑같으면(지점명은 빼고) 그 가게 자체로 본다 (kind shop, placeId 없음: 우리 데이터에 없는 가게).
+     * 이름이 검색어와 똑같은(지점명은 빼고) 카페·식당·술집이면 그 가게 자체로 본다 (kind shop, placeId 없음: 우리 데이터에 없는 가게).
      * 우리 데이터·주소로 못 찾았을 때만 부른다 (네이버 하루 한도를 가게 찾기·사진 보기와 나눠 씀)
      */
     public List<LocationResult> searchNamed(String query) {
@@ -73,8 +73,11 @@ public class LocationSearchService {
                 String title = PlaceNames.normalize(item.title());
                 if (title.contains(term)) {
                     String address = item.roadAddress().isEmpty() ? item.address() : item.roadAddress();
-                    if (title.equals(term) || PlaceNames.normalize(PlaceNames.splitBranch(item.title()).name()).equals(term)) {
-                        return List.of(new LocationResult("shop", item.title(), address, item.lat(), item.lng(), 500, null, categoryOf(item.category())));
+                    String category = categoryOf(item.category());
+                    boolean sameName = title.equals(term) || PlaceNames.normalize(PlaceNames.splitBranch(item.title()).name()).equals(term);
+                    // 카페·식당·술집만 가게로 (네이버에는 "안양일번가" 같은 상권·거리 이름도 이름이 똑같은 항목으로 있어서)
+                    if (sameName && !"shop".equals(category)) {
+                        return List.of(new LocationResult("shop", item.title(), address, item.lat(), item.lng(), 500, null, category));
                     }
                     return List.of(new LocationResult("named", parsed.term(), address, item.lat(), item.lng(), 800));
                 }
