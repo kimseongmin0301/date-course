@@ -35,6 +35,8 @@ import tools.jackson.core.type.TypeReference;
 public class LocationSearchService {
 
     public static final int MAX_RESULTS = 10;
+    /** 장소 이름 이만큼에 들어 있는 말은 흔한 말 (가게 이름으로 보지 않음) */
+    static final int COMMON_WORD = 30;
     static final Duration CACHE_TTL = Duration.ofDays(1);
     /** 못 찾은 결과는 짧게 둔다 (Geocoding 이 잠깐 안 됐거나 키를 막 넣은 경우 하루 내내 빈 결과가 나가지 않게) */
     static final Duration EMPTY_TTL = Duration.ofMinutes(10);
@@ -183,7 +185,10 @@ public class LocationSearchService {
         String normalized = PlaceNames.normalize(query.term());
         if (normalized.length() >= 2) {
             result.addAll(repository.landmarks(normalized, query.sido(), 5));
-            result.addAll(repository.shops(normalized, query.sido()));
+            // 장소 이름에 흔히 들어가는 말("막걸리", "호수")은 이름이 똑같은 가게가 있어도 가게로 보지 않는다
+            if (!repository.commonWord(normalized, COMMON_WORD)) {
+                result.addAll(repository.shops(normalized, query.sido()));
+            }
             if (normalized.length() >= 4 && normalized.endsWith("점")) {
                 // "어니언 성수점" → 이름이 통째로 "어니언 성수"인 가게 (지점명을 이름에 붙여 둔 데이터가 있어서)
                 result.addAll(repository.shops(normalized.substring(0, normalized.length() - 1), query.sido()));

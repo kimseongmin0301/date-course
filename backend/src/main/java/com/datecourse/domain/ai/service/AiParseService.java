@@ -80,10 +80,16 @@ public class AiParseService {
         QueryRules.Parsed rules = QueryRules.parse(q);
         LocationResult area = null;
         List<String> sidos = new ArrayList<>(rules.sidos());
-        // 체인 가게 + 지점·동네("어니언 성수에서")는 두 낱말을 붙여야 그 지점이라, 이웃한 두 낱말을 먼저 가게로만 본다
+        // 체인 가게 + 지점·동네("어니언 성수에서")는 두 낱말을 붙여야 그 지점이라, 이웃한 두 낱말을 먼저 가게로만 본다.
+        // 뒤 낱말이 동네·역일 때만 ("바다 보고"를 붙인 "바다보고"라는 가게로 잡지 않게)
         String[] words = q.split(" ");
         for (int i = 0; i + 1 < words.length && i < PAIR_TRIES; i++) {
-            String pair = QueryRules.stripJosa(words[i]) + " " + QueryRules.stripJosa(words[i + 1]);
+            String second = QueryRules.stripJosa(words[i + 1]);
+            boolean place = locations.searchLocal(second).stream().anyMatch(r -> "area".equals(r.kind()) || "station".equals(r.kind()));
+            if (!place) {
+                continue;
+            }
+            String pair = QueryRules.stripJosa(words[i]) + " " + second;
             area = locations.searchLocal(pair).stream()
                     .filter(r -> "shop".equals(r.kind()) && r.placeId() != null)
                     .filter(r -> pickArea(pair.replace(" ", ""), List.of(r), sidos) != null)

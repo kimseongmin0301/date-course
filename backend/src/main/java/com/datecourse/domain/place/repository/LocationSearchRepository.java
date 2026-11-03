@@ -1,5 +1,6 @@
 package com.datecourse.domain.place.repository;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -83,27 +84,50 @@ public class LocationSearchRepository {
     }
 
     /**
-     * 가게 이름 (정리한 이름이 똑같은 카페·식당·술집·소품샵·놀거리). 같은 이름이 SHOP_MAX 곳보다 많으면 체인이라 빈 목록
-     * ("스타벅스"는 어느 지점인지 모르므로 가게로 보지 않음. "대전 스타벅스"처럼 시도를 붙여도 많으면 마찬가지)
+     * 가게 이름 (정리한 이름이 똑같은 카페·식당·술집·소품샵·놀거리). 같은 이름이 <b>전국에</b> SHOP_MAX 곳보다 많으면 체인이거나
+     * 흔한 말이라 빈 목록 ("스타벅스"는 어느 지점인지 모르고, "바다"·"카페"·"막걸리"는 그런 이름의 가게가 곳곳에 있는 그냥 낱말).
+     * 시도는 센 뒤에 거른다 (시도 안에서만 세면 "부산 바다"가 부산의 가게 "바다"로 잡혔음: AI 검색 시험 모음에서 찾음)
      */
     public List<LocationResult> shops(String normalized, String sido) {
+        List<String> sidoOf = new ArrayList<>();
         List<LocationResult> found = jdbc.sql("""
                 SELECT id, name, branch, category, sido, sigungu, road_address, lot_address, lat, lng FROM place
-                WHERE closed_at IS NULL AND category IN ('cafe', 'restaurant', 'bar', 'shop', 'activity') AND normalized_name = :exact AND %s
+                WHERE closed_at IS NULL AND category IN ('cafe', 'restaurant', 'bar', 'shop', 'activity') AND normalized_name = :exact
                 ORDER BY id
-                LIMIT :limit""".formatted(IN_SIDO))
+                LIMIT :limit""")
                 .param("exact", normalized)
-                .param("sido", sido)
                 .param("limit", SHOP_MAX + 1)
                 .query((rs, n) -> {
                     String address = rs.getString("road_address") != null ? rs.getString("road_address") : rs.getString("lot_address");
                     String detail = address != null ? address : rs.getString("sido") + " " + rs.getString("sigungu");
                     String name = rs.getString("branch") == null ? rs.getString("name") : rs.getString("name") + " " + rs.getString("branch");
+                    sidoOf.add(rs.getString("sido"));
                     return new LocationResult("shop", name, detail, rs.getDouble("lat"), rs.getDouble("lng"), 500,
                             rs.getLong("id"), rs.getString("category"));
                 })
                 .list();
-        return found.size() > SHOP_MAX ? List.of() : found;
+        if (found.size() > SHOP_MAX) {
+            return List.of();
+        }
+        List<LocationResult> inSido = new ArrayList<>();
+        for (int i = 0; i < found.size(); i++) {
+            if (sido == null || sido.equals(sidoOf.get(i))) {
+                inSido.add(found.get(i));
+            }
+        }
+        return inSido;
+    }
+
+    /**
+     * 장소 이름에 이 말이 든 곳이 limit 곳 이상인지 (흔한 말: "막걸리"·"호수"·"클래스"는 그런 이름의 가게가 몇 곳 있어도 가게 이름이라기보다 그냥 낱말).
+     * 찾는 대로 멈춰서 흔한 말은 빠르고, 드문 이름도 전체를 한 번 훑는 정도(운영 약 50ms)
+     */
+    public boolean commonWord(String normalized, int limit) {
+        Integer n = jdbc.sql("SELECT count(*) FROM (SELECT 1 FROM place WHERE normalized_name LIKE :contains LIMIT :limit) t")
+                .param("contains", "%" + normalized + "%")
+                .param("limit", limit)
+                .query(Integer.class).single();
+        return n != null && n >= limit;
     }
 
     /**
