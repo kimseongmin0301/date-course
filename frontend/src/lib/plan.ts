@@ -178,6 +178,12 @@ export function saveToServer(courseId: string, plan: Plan): Promise<PlanResponse
   return api<PlanResponse>(`/plans/${courseId}`, { method: 'PUT', body: JSON.stringify(toRequest(plan)) })
 }
 
+/** 공유 링크 만들기: 지금 일정을 그대로 떠 둔다 (저장하지 않은 일정도). 받은 사람은 /s/{token} 에서 본다 */
+export async function shareToServer(courseId: string, plan: Plan): Promise<string> {
+  const res = await api<{ token: string }>(`/plans/${courseId}/share`, { method: 'POST', body: JSON.stringify(toRequest(plan)) })
+  return `${window.location.origin}/s/${res.token}`
+}
+
 /** 저장하지 않고 고친 내용 (이 브라우저 임시). 예전 "바꾸기" 저장분(course-swaps:)은 옮겨 온다 */
 export function loadDraft(id: string, course: CourseDetail): Plan | null {
   const draft = readJson<Plan | null>(draftKey(id), null)

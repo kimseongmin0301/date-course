@@ -18,6 +18,7 @@ import {
   loadSaved,
   samePlan,
   saveDraft,
+  shareToServer,
   saveToServer,
   STAY_MAX,
   timeline,
@@ -27,7 +28,7 @@ import {
   type PlanRole,
   type PlanStep,
 } from '../lib/plan'
-import type { AddressResult, AlternativeResponse, CourseDetail, NaverImage, Place } from '../lib/types'
+import type { AddressResult, AlternativeResponse, CourseDetail, NaverImage, Place, Weather } from '../lib/types'
 import StayInput from '../components/StayInput'
 import { useMap } from '../map/context'
 
@@ -100,6 +101,8 @@ export default function CoursePage() {
   /** 서버에 저장한 일정 (저장 안 했으면 null) */
   const [saved, setSaved] = useState<{ plan: Plan; at: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  /** 공유 링크 (만들면 주소, 복사했는지) */
+  const [share, setShare] = useState<{ url: string | null; busy: boolean; copied: boolean; error: string | null } | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [photos, setPhotos] = useState<Record<string, Photos>>({})
 
@@ -152,6 +155,21 @@ export default function CoursePage() {
   }, [id])
 
   const steps = useMemo(() => (plan ? timeline(plan) : []), [plan])
+
+  // 고른 날짜의 날씨 (코스 가운데 기준). 비 소식이면 야외 코스에 실내 코스를 권한다
+  const [weather, setWeather] = useState<Weather | null>(null)
+  const planDate = plan?.date
+  useEffect(() => {
+    setWeather(null)
+    if (!course || !planDate) return
+    let cancelled = false
+    api<Weather>(`/weather?lat=${course.centerLat}&lng=${course.centerLng}&date=${planDate}`)
+      .then((w) => !cancelled && setWeather(w))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [course, planDate])
   const changed = plan && course ? isChanged(plan, course) : false
   const unsaved = plan && course ? (saved ? !samePlan(plan, saved.plan) : isChanged(plan, course)) : false
   const customList = picker?.kind === 'add' ? picker.custom?.results : null
@@ -207,6 +225,29 @@ export default function CoursePage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  /** 공유 링크를 만들고, 휴대폰이면 공유 창(카카오톡 등)을 연다. 창이 없거나 닫으면 주소를 보여주고 복사하게 한다 */
+  async function shareLink() {
+    if (!plan || !course) return
+    setShare({ url: null, busy: true, copied: false, error: null })
+    try {
+      const url = await shareToServer(id, plan)
+      setShare({ url, busy: false, copied: false, error: null })
+      if (navigator.share) {
+        await navigator.share({ title: course.title, text: `${course.title} 데이트 일정`, url }).catch(() => {})
+      }
+    } catch (e) {
+      setShare({ url: null, busy: false, copied: false, error: (e as Error).message })
+    }
+  }
+
+  function copyShare() {
+    if (!share?.url) return
+    navigator.clipboard
+      ?.writeText(share.url)
+      .then(() => setShare((s) => (s ? { ...s, copied: true } : s)))
+      .catch(() => {})
   }
 
   function updateSteps(fn: (list: PlanStep[]) => PlanStep[]) {
@@ -640,6 +681,9 @@ export default function CoursePage() {
         <button type="button" className="primary save-button" onClick={save} disabled={saving || (!!saved && !unsaved)}>
           {saving ? '저장 중…' : saved && !unsaved ? '✓ 저장됨' : '💾 저장'}
         </button>
+        <button type="button" className="secondary share-button" onClick={shareLink} disabled={share?.busy}>
+          {share?.busy ? '만드는 중…' : '🔗 공유'}
+        </button>
         <p className="save-state muted small">
           {saveError ? (
             <span className="notice">{saveError}</span>
@@ -658,6 +702,42 @@ export default function CoursePage() {
           )}
         </p>
       </div>
+
+      {weather?.available && (
+        <p className={weather.rainy ? 'weather notice-soft small' : 'weather muted small'}>
+          {weather.emoji} 그날 {weather.label} · {weather.tempMin}~{weather.tempMax}°
+          {weather.rainProbability != null && ` · 비 올 확률 ${weather.rainProbability}%`}
+          {weather.rainy && course.keywords.includes('outdoor') && (
+            <>
+              {' '}— 야외가 많은 코스예요.{' '}
+              <Link to={`/search?lat=${course.centerLat.toFixed(5)}&lng=${course.centerLng.toFixed(5)}&r=2000&kw=indoor`}>근처 실내 코스 보기 →</Link>
+            </>
+          )}
+          <span className="muted"> (예보: </span>
+          <a href="https://open-meteo.com/" target="_blank" rel="noreferrer" className="muted">
+            Open-Meteo
+          </a>
+          <span className="muted">)</span>
+        </p>
+      )}
+
+      {share && (share.url || share.error) && (
+        <div className="share-box notice-soft small">
+          {share.error ? (
+            <span className="notice">{share.error}</span>
+          ) : (
+            <>
+              <p>이 링크를 받은 사람은 로그인 없이 지금 일정을 볼 수 있어요 (90일 동안). 공유한 뒤 고친 내용은 링크에 들어가지 않아요.</p>
+              <div className="share-url">
+                <input type="text" readOnly value={share.url ?? ''} aria-label="공유 링크" onFocus={(e) => e.target.select()} />
+                <button type="button" onClick={copyShare}>
+                  {share.copied ? '✓ 복사됨' : '복사'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {changed && (
         <p className="notice-soft">

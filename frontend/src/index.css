@@ -880,9 +880,34 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-.save-button {
+.save-button,
+.share-button {
   width: auto;
   padding: 9px 16px;
+}
+
+/* 공유 링크: 주소 칸 + 복사 */
+.share-box p {
+  margin: 0 0 6px;
+}
+
+.share-url {
+  display: flex;
+  gap: 6px;
+}
+
+.share-url input {
+  flex: 1;
+  min-width: 0;
+}
+
+.share-url button {
+  width: auto;
+  padding: 6px 12px;
+}
+
+.step-time-text {
+  margin: 0 0 4px;
 }
 
 .save-state {

@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -49,6 +50,23 @@ public class PlanController {
     public PlanResponse save(@PathVariable long courseId, @RequestBody(required = false) PlanSaveRequest body,
                              HttpServletRequest request, HttpServletResponse response) {
         return planService.save(VisitorCookie.ensure(request, response), courseId, body);
+    }
+
+    /** 공유 링크 만들기 (본문은 저장과 같음) → 201 { token } */
+    @PostMapping("/api/plans/{courseId}/share")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareResponse share(@PathVariable long courseId, @RequestBody(required = false) PlanSaveRequest body,
+                               HttpServletRequest request, HttpServletResponse response) {
+        return new ShareResponse(planService.share(VisitorCookie.ensure(request, response), courseId, body));
+    }
+
+    /** 공유 링크로 일정 보기 (누구나, 로그인 없이). 없거나 만료됐으면 404 */
+    @GetMapping("/api/shares/{token}")
+    public PlanResponse shared(@PathVariable String token) {
+        return planService.shared(token);
+    }
+
+    public record ShareResponse(String token) {
     }
 
     @DeleteMapping("/api/plans/{courseId}")

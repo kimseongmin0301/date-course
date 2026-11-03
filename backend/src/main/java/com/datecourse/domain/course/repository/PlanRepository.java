@@ -89,6 +89,38 @@ public class PlanRepository {
         return count;
     }
 
+    /** 공유 링크 만들기 (공유할 때의 일정 그대로) */
+    public void insertShare(String token, UUID visitor, long courseId, LocalDate date, int startMinute, String stepsJson, OffsetDateTime expiresAt) {
+        jdbc.sql("""
+                INSERT INTO plan_share (token, visitor_id, course_id, plan_date, start_minute, steps, expires_at)
+                VALUES (:token, :visitor, :course, :date, :start, CAST(:steps AS jsonb), :expires)""")
+                .param("token", token).param("visitor", visitor).param("course", courseId)
+                .param("date", date == null ? null : java.sql.Date.valueOf(date))
+                .param("start", startMinute).param("steps", stepsJson).param("expires", expiresAt)
+                .update();
+    }
+
+    /** 공유 링크로 일정 읽기 (만료됐거나 숨긴 코스면 없음). updatedAt 칸에는 만든 시각 */
+    public Optional<Row> findShare(String token) {
+        return jdbc.sql("""
+                SELECT ps.course_id, c.title, c.sido, c.sigungu, ps.plan_date, ps.start_minute, ps.steps::text AS steps, ps.created_at AS updated_at
+                FROM plan_share ps JOIN course c ON c.id = ps.course_id
+                WHERE ps.token = :token AND ps.expires_at > now() AND NOT c.hidden""")
+                .param("token", token)
+                .query((rs, n) -> map(rs)).optional();
+    }
+
+    /** 이 방문자가 하루 동안 만든 공유 링크 수 */
+    public int sharesToday(UUID visitor) {
+        return jdbc.sql("SELECT count(*) FROM plan_share WHERE visitor_id = :visitor AND created_at > now() - interval '1 day'")
+                .param("visitor", visitor).query(Integer.class).single();
+    }
+
+    /** 만료된 공유 링크 지우기. 지운 수 */
+    public int deleteExpiredShares() {
+        return jdbc.sql("DELETE FROM plan_share WHERE expires_at <= now()").update();
+    }
+
     public boolean courseExists(long courseId) {
         return jdbc.sql("SELECT EXISTS (SELECT 1 FROM course WHERE id = :id)").param("id", courseId).query(Boolean.class).single();
     }

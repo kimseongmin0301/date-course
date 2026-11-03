@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class SpaController {
 
-    @GetMapping({"/search", "/saved", "/privacy", "/courses/{id:[0-9]+}"})
+    @GetMapping({"/search", "/saved", "/privacy", "/courses/{id:[0-9]+}", "/s/{token:[0-9A-Za-z]+}"})
     public String index() {
         return "forward:/index.html";
     }

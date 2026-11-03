@@ -46,6 +46,10 @@ public class PlanService {
 
     public static final int MAX_STEPS = 15;
     public static final int MAX_PLANS = 50;
+    /** 공유 링크: 주소 길이(대소문자·숫자, 약 59비트), 열리는 기간, 한 사람 하루 개수 */
+    public static final int TOKEN_LENGTH = 10;
+    static final java.time.Duration SHARE_DAYS = java.time.Duration.ofDays(90);
+    public static final int SHARES_PER_DAY = 30;
     public static final int STAY_MAX = 720;
     /** 고정 도착 시간은 다음날 낮까지 (분) */
     public static final int FIXED_MAX = 2 * 1440 - 1;
@@ -107,7 +111,11 @@ public class PlanService {
         return plans.find(visitor, courseId).map(this::toResponse).orElseThrow(CourseException::notFound);
     }
 
-    public PlanResponse save(UUID visitor, long courseId, PlanSaveRequest req) {
+    /** 검사를 마친 일정 (저장·공유가 같이 씀) */
+    private record Checked(LocalDate date, int start, List<Stored> steps) {
+    }
+
+    private Checked check(long courseId, PlanSaveRequest req) {
         if (!plans.courseExists(courseId)) {
             throw CourseException.notFound();
         }
@@ -124,6 +132,57 @@ public class PlanService {
         if (!found.keySet().containsAll(steps.stream().map(Stored::placeId).filter(Objects::nonNull).toList())) {
             throw CourseException.badRequest("없는 장소가 들어 있어요. 새로고침한 뒤 다시 저장해 주세요.");
         }
+        return new Checked(date, start, steps);
+    }
+
+    /**
+     * 공유 링크 만들기: 지금 화면의 일정을 그대로 떠 두고(저장하지 않은 일정도 됨) 무작위 주소를 준다. 90일 뒤 열리지 않는다.
+     * 직접 넣은 가게는 "이용자가 알려 준 가게"로 모으지 않는다 (저장할 때만 모음). 한 사람이 하루 SHARES_PER_DAY 개까지
+     */
+    public String share(UUID visitor, long courseId, PlanSaveRequest req) {
+        Checked c = check(courseId, req);
+        if (plans.sharesToday(visitor) >= SHARES_PER_DAY) {
+            throw CourseException.tooMany("공유 링크를 너무 많이 만들었어요. 내일 다시 만들어 주세요.");
+        }
+        String token = newToken();
+        plans.insertShare(token, visitor, courseId, c.date(), c.start(), json.writeValueAsString(c.steps()),
+                java.time.OffsetDateTime.now().plus(SHARE_DAYS));
+        return token;
+    }
+
+    /** 공유 링크로 일정 보기. 없거나 만료됐으면 404 */
+    public PlanResponse shared(String token) {
+        if (token == null || !token.matches("[0-9A-Za-z]{" + TOKEN_LENGTH + "}")) {
+            throw CourseException.shareNotFound();
+        }
+        return plans.findShare(token).map(this::toResponse).orElseThrow(CourseException::shareNotFound);
+    }
+
+    /** 만료된 공유 링크를 매일 지운다 */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 40 4 * * *", zone = "Asia/Seoul")
+    public void deleteExpiredShares() {
+        int n = plans.deleteExpiredShares();
+        if (n > 0) {
+            log.info("만료된 공유 링크 {}개를 지움", n);
+        }
+    }
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+    private static final String TOKEN_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    static String newToken() {
+        StringBuilder sb = new StringBuilder(TOKEN_LENGTH);
+        for (int i = 0; i < TOKEN_LENGTH; i++) {
+            sb.append(TOKEN_CHARS.charAt(RANDOM.nextInt(TOKEN_CHARS.length())));
+        }
+        return sb.toString();
+    }
+
+    public PlanResponse save(UUID visitor, long courseId, PlanSaveRequest req) {
+        Checked checked = check(courseId, req);
+        LocalDate date = checked.date();
+        int start = checked.start();
+        List<Stored> steps = checked.steps();
         if (plans.find(visitor, courseId).isEmpty() && plans.count(visitor) >= MAX_PLANS) {
             throw CourseException.badRequest("일정은 " + MAX_PLANS + "개까지 저장할 수 있어요. 내 저장에서 지난 일정을 지워 주세요.");
         }

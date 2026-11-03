@@ -54,6 +54,7 @@
 │     │  │                         CourseController /api/courses·/api/courses/{id}·…/alternatives·/api/places/nearby·/api/places/naver,
 │     │  │                         PlanController·PlanService·PlanRepository (내 일정 저장 /api/plans, saved_plan) (7절 "API")
 │     │  ├─ reaction/              Reaction, ReactionKind(save/like/visited)
+│     │  ├─ weather/               코스 날짜의 날씨: WeatherController GET /api/weather, WeatherService(3시간 캐시·하루 한도), client/OpenMeteoClient
 │     │  ├─ ai/                    실험 기능: AI 검색·AI 추천 (AiController /api/ai/parse·/recommend, AiParseService, AiRecommendService,
 │     │  │                         CourseEmbeddingService(코스 임베딩·메모리 색인), AiGate(한 번에 하나·한도), client/OllamaClient, util/QueryRules)
 │     │  ├─ account/               다른 기기에서도 보기: AccountController /api/account·/login·/logout, AccountService(코드·잠금·일정 옮기기),
@@ -88,7 +89,7 @@
       │                            keywords.ts(키워드 목록 한 번만), areas.ts(인기 지역 바로가기), format.ts(시간·거리·이름표),
       │                            plan.ts(내 일정: 시간표·저장·임시 저장·직접 넣은 가게), storage.ts(localStorage 도우미)
       └─ pages/                    HomePage(/), SearchPage(/search?lat=&lng=&r=&kw=), CoursePage(/courses/:id), SavedPage(/saved),
-                                   PrivacyPage(/privacy, 개인정보처리방침), NotFoundPage
+                                   SharePage(/s/:token, 공유받은 일정), PrivacyPage(/privacy, 개인정보처리방침), NotFoundPage
 ```
 
 - 다른 도메인의 entity 를 컨트롤러에서 직접 쓰지 말고 service 를 통해 접근합니다.
@@ -130,6 +131,7 @@ npm run lint
 | `V4__saved_plan.sql` | `saved_plan` (내 일정 저장: 방문자 쿠키 id·코스마다 하나, steps JSONB 에 place id·머무는 시간·고정 도착). 엔티티 없이 JDBC | ✅ |
 | `V7__course_embedding.sql` | `course_embedding` (AI 추천용 코스 임베딩: 768차원 real[], 글 해시). 엔티티 없이 JDBC | ✅ |
 | `V6__plan_account.sql` | `plan_account` (다른 기기에서도 보기: 코드 8자·방문자 id·비밀번호 해시, 연락처 없음). 엔티티 없이 JDBC | ✅ |
+| `V8__plan_share.sql` | `plan_share` (일정 공유 링크: 무작위 10자 주소, 공유할 때의 일정 그대로, 90일 뒤 만료). 엔티티 없이 JDBC | ✅ |
 | `V5__place_suggestion.sql` | `place_suggestion` (이용자가 알려 준 가게: 직접 넣은 곳을 모아 3명이거나 관리자 승인이면 장소 찾기에 공개). 엔티티 없이 JDBC | ✅ |
 
 ## 5-1. 캐시는 Redis
@@ -156,6 +158,8 @@ npm run lint
 | `healing-room:date-course:ai-parse:{문장 해시}`, `…:ai-rec:{문장 해시}:{검색 조건}:{뺀 코스}` | AI 검색·AI 추천 결과 (문장은 저장하지 않음) | 1일 (AI 가 바빴으면 5~10분) |
 | `healing-room:date-course:ai-count:{날짜}`, `…:ai-ip:{IP}:{시}` | AI 부른 수 (하루 500·IP 한 시간 20) | 2일 / 1시간 |
 | `healing-room:date-course:location-local:{검색어}` | Geocoding 없이 우리 데이터로만 찾은 지역 (AI 검색) | 1일 (없으면 10분) |
+| `healing-room:date-course:weather:{위도}:{경도}:{날짜}` | 그날 날씨 (좌표는 소수 첫째 자리 ≈10km) | 3시간 (못 받았으면 10분) |
+| `healing-room:date-course:weather-count:{날짜}` | 그날 날씨 API 부른 수 (하루 5,000) | 2일 |
 | `healing-room:date-course:geocode-count:{날짜}` | 그날(한국 시간) Geocoding 부른 수 (하루 한도 확인) | 2일 |
 
 ## 6. 외부 API 규칙
@@ -164,6 +168,7 @@ npm run lint
 - TourAPI 는 **서버(수집기)만** 부릅니다. 상가(상권)정보는 공공데이터포털에서 분기마다 CSV 파일을 받아 넣습니다(키 없음, 이용 제한 없음).
 - 화면은 우리 API 와 네이버 지도만 씁니다. 지도 키(`frontend/.env` 의 `VITE_NAVER_MAP_KEY_ID`, 스크립트 `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=…`)는 브라우저에 들어가므로 콘솔에 Web 서비스 URL 을 등록해 도메인을 제한합니다.
 - 네이버 클라우드 Maps 는 **Dynamic Map**(화면 지도, 월 600만 건 무료)과 **Geocoding**(주소 검색, 월 300만 건 무료, 서버에서만)만 신청합니다. Static Map, Directions(길찾기)는 쓰지 않습니다. Geocoding 은 Client Secret 이 필요해서 `NaverGeocodeClient` 가 서버에서만 부르고(`NAVER_MAP_CLIENT_ID`·`NAVER_MAP_CLIENT_SECRET`, 화면에 넣지 않음), 사이트 전체 하루 3,000번(`NAVER_GEOCODE_DAILY_LIMIT`)·검색어마다 하루 캐시로 무료 이용량을 넘지 않게 합니다. 지도는 화면을 열 때 한 번만 만들고, 페이지를 옮길 때 다시 만들지 않게 합니다(호출 수 아끼기).
+- **날씨는 Open-Meteo**(`weather/client/OpenMeteoClient`, 키 없음·비상업 무료·하루 10,000번, 데이터 CC BY 4.0 이라 화면에 "예보: Open-Meteo" 출처 링크). 서버에서만, 코스 가운데 좌표(소수 첫째 자리)와 날짜만 보냅니다. 기상청 단기예보는 공공데이터포털 키 신청이 필요하고 3일까지라 쓰지 않았습니다. 사이트 전체 하루 5,000번(`WEATHER_DAILY_LIMIT`), `WEATHER_ENABLED=false` 면 끔.
 - 결과를 얼마나 오래 저장해도 되는지는 각 서비스 약관을 따릅니다. 리뷰·별점 수집 금지.
 
 ### 장소 수집기 (collector)
@@ -233,6 +238,9 @@ cd backend
 | POST | `/api/ai/recommend` | 실험 기능. AI 추천 `{ q, lat, lng, radius, kw, exclude? }` → `{ ai, message, candidates, picks: [{ courseId, title, sigungu, totalMinutes, stepNames, reason, inRanking }] }`. 후보 안에서만 고르고 검수, 바쁘면 `ai:false` + 순위 위 3개. IP 한 시간 20번 넘으면 429 |
 | GET | `/api/plans` | 내가 저장한 일정 목록 (쿠키 `dc_vid` 기준, 최근 저장 순) `[{ courseId, title, sido, sigungu, date, start, end, stepNames, savedAt }]`. 쿠키 없으면 [] |
 | GET · PUT · DELETE | `/api/plans/{courseId}` | 이 코스의 내 일정 보기(없으면 404) / 저장 `{ date?, start: "HH:MM", steps: [{ placeId, role, stayMinutes, fixedArrive?, origin, courseOrder?, custom? }] }` (custom = 직접 넣은 가게 `{ name, address, lat, lng, source }`, source 는 user(이름·주소로 직접)·naver(네이버 지역 검색에서 고름), 이때 placeId 는 null·role 은 mine. 응답에서는 장소 id 0·분류 `custom`) (쿠키 없으면 만들어 줌, 없는 장소·잘못된 값 400, 50개 넘으면 400) / 지우기 204 |
+| POST | `/api/plans/{courseId}/share` | 공유 링크 만들기 (본문은 저장과 같음, 저장하지 않은 일정도 됨) → 201 `{ token }`. 그때의 일정을 그대로 떠 두고 90일 뒤 열리지 않음. 직접 넣은 가게를 이용자 제안으로 모으지 않음. 한 사람 하루 30개 넘으면 429 |
+| GET | `/api/shares/{token}` | 공유받은 일정 (누구나, 로그인 없이) → 저장한 일정과 같은 모양. 없거나 만료·숨긴 코스면 404 "공유 링크가 없거나 기간이 지났어요." 만든 사람의 방문자 id 는 내보내지 않음 |
+| GET | `/api/weather?lat=&lng=&date=` | 그날 날씨 `{ available, date, label, emoji, rainProbability, tempMin, tempMax, rainy }`. 오늘~15일 뒤만(아니면 `available:false`, 오류 아님), `rainy` = 비·눈·뇌우이거나 비 올 확률 60% 이상. 국외·날짜 형식 틀림 400 |
 | GET | `/api/courses/{id}` | 코스 상세: 위 + `budgetMin`·`budgetMax`, 단계마다 `memo` 와 장소(`roadAddress`, `lotAddress`, `phone`, `imageUrl`, `description`, `naverMapUrl`). 없거나 숨긴 코스 404 |
 
 ### 순위
@@ -254,6 +262,8 @@ cd backend
 - **저장(로그인 없음)**: "💾 저장" → `PUT /api/plans/{코스id}` 로 서버(`saved_plan`)에 저장, 다음에 와도 그대로. 방문자 구분은 쿠키 **`dc_vid`**(`global/util/VisitorCookie`: 무작위 UUID, HttpOnly·SameSite=Lax·https 면 Secure, 1년, 저장할 때 없으면 만듦). 쿠키에는 id 만 두고(4KB 제한·요청마다 전송) 일정은 서버에, 장소는 place id 만 두고 읽을 때 지금 DB 의 장소와 이어 붙입니다(화면이 보낸 이름·주소를 믿지 않음). 방문자당 50개·일정당 15곳. 저장 전 고친 내용은 브라우저 임시(`localStorage` `course-plan:{코스id}`, 저장하면 지움). 불러오는 순서: 임시 → 서버 저장본 → 원래 코스. "내 저장"(`/saved`)에서 목록·열기·지우기. 저장한 일정이 있는 자동 코스는 다시 만들 때 지우지 않고 숨깁니다(`AutoCourseService.removeStale`).
 - **근처 대안**(코스 상세): 단계마다 "다른 카페/식당/구경거리 보기" → `GET /api/courses/{id}/steps/{order}/alternatives` 5곳(A~E, 지도에도). "이걸로 바꾸기"는 그 단계를 바꾸고 바뀐 구간의 걷는 시간을 다시 어림합니다(`walkMinutes`, 서버와 같은 식). 바꾼 내용은 내 일정의 일부로 임시 저장·서버 저장되고(위 "저장"), "원래 코스로"로 되돌립니다. 예전 `localStorage` `course-swaps:{코스id}` 저장분은 처음 열 때 내 일정으로 옮깁니다(`loadDraft`). 예전에는 모두 숫자 동그라미라 순위 "2"와 단계 "2"가 헷갈린다는 의견이 있었습니다. 사용자가 지도를 꽤 옮기면 지도 위에 "이 지역에서 다시 찾기"(화면이 옮긴 것은 치지 않음).
 - 코스 상세: 단계 번호 핀 + 동선, 단계 카드(사진·주소·전화·네이버지도 링크), 번호를 누르면 지도가 그 장소로. 사진이 없는 단계는 "📷 네이버 이미지 보기"(누를 때만 `GET /api/places/images`).
+- **공유 링크**(`lib/plan.ts` `shareToServer`, `pages/SharePage`): 코스 상세의 "🔗 공유" → 지금 일정(저장 전이어도)을 떠 두고 `https://…/s/{token}` 을 만들어, 휴대폰이면 공유 창(카카오톡 등, `navigator.share`), 아니면 주소 칸 + 복사. 받은 사람은 `/s/{token}`(`SpaController`)에서 시간표·지도를 보고 "내 일정으로 가져오기"를 누르면 그 코스의 임시 일정(`course-plan:{코스id}`)으로 넣고 코스 상세로 가서 고치고 저장합니다. 공유한 뒤 고친 내용은 링크에 들어가지 않습니다(만든 때 그대로). 만료된 링크는 매일 04:40 지웁니다(`PlanService.deleteExpiredShares`).
+- **날씨**(코스 상세): 날짜를 고르면 `GET /api/weather` 로 코스 가운데의 그날 예보를 날짜 아래에 "☁️ 그날 흐림 · 4~15° · 비 올 확률 25% (예보: Open-Meteo)". `rainy` 이고 코스가 야외(키워드 `outdoor`)면 "근처 실내 코스 보기 →"(`/search?…&kw=indoor`).
 - **가고 싶은 곳 찾기 순서**: 우리 데이터(`/api/places/nearby`) → 없으면 바로 네이버 지역 검색(`/api/places/naver`, 있어도 "네이버에서 찾기") → "이름과 주소로 직접 넣기"(`/api/addresses`). 직접 넣은 곳은 분류 `custom`, 네이버에서 고른 곳은 `naver`(둘 다 id 0)로 화면이 이름·주소·좌표를 저장 요청에 담습니다(`lib/plan.ts` `toRequest`).
 
 ### 다른 기기에서도 보기 (AccountService)
@@ -264,7 +274,7 @@ cd backend
 - "코드 지우기"(`DELETE /api/account`, 비밀번호 확인)로 `plan_account` 행만 지웁니다. 일정은 이 브라우저(쿠키)에 남습니다.
 
 ### 개인정보처리방침 (`/privacy`, `pages/PrivacyPage.tsx`)
-- 화면 아래 footer 에 링크. 표(1절)는 **실제로 저장하는 것 그대로**입니다: 쿠키 `dc_vid`, `saved_plan`, `plan_account`, `place_suggestion`, Redis `account-fail:*`(IP, 15분), nginx 접속 기록(14일, 내 주변 좌표가 주소에 들어감), 브라우저 `course-plan:*`. 외부: 네이버 지도(브라우저), 네이버 주소·지역·이미지 검색(서버가 검색어만, AI 검색은 장소 이름으로 보이는 낱말 최대 2개만), 이미지 섬네일(브라우저, no-referrer).
+- 화면 아래 footer 에 링크. 표(1절)는 **실제로 저장하는 것 그대로**입니다: 쿠키 `dc_vid`, `saved_plan`, `plan_account`, `place_suggestion`, Redis `account-fail:*`(IP, 15분), nginx 접속 기록(14일, 내 주변 좌표가 주소에 들어감), 브라우저 `course-plan:*`, 공유한 일정 `plan_share`(90일). 외부: 네이버 지도(브라우저), 네이버 주소·지역·이미지 검색(서버가 검색어만, AI 검색은 장소 이름으로 보이는 낱말 최대 2개만), 이미지 섬네일(브라우저, no-referrer), 날씨 Open-Meteo(서버가 코스 위치·날짜만).
 - **저장하는 정보(DB 칼럼, Redis 키, 쿠키·localStorage, 로그)나 외부 서비스를 추가·변경하면 이 페이지의 표도 함께 고치고 `SINCE` 와 "바뀐 내용"을 갱신**합니다. 확인하지 않은 보안 주장은 쓰지 않습니다.
 - 화면 문구에는 **기술 이름(DB·Redis·nginx, 쿠키·저장소 키 이름, 암호화 방식)과 잠금 횟수·한도 같은 내부 정보를 쓰지 않고** 쉬운 말로만 적습니다("서버", "서버 (임시 저장)", "원래 글자로 되돌릴 수 없게", "여러 번 틀리면 잠시 막아요"). 무엇을·왜·얼마나 두는지와 외부 서비스(네이버)는 그대로 밝힙니다.
 - 앱 로그에는 IP·방문자 id·비밀번호·검색어를 남기지 않습니다(남기게 되면 방침도 고칠 것).
@@ -283,6 +293,7 @@ cd backend
 - **풍경·시도**(`course/util/Scenes`, `QueryRules`): 바다(해수욕장·해변·해안·포구·등대…)·산·숲(오름·숲·수목원·휴양림…)·강·호수(호수·계곡·강변·폭포…)는 코스의 **관광명소·문화시설·카페** 단계 이름이나 업종으로 찾습니다(식당 이름은 안 봄: 익산 횟집 "동해안"이 바다로 잡혔던 적). "부산", "제주도", "경상남도"는 지점이 아니라 **시도 전체**(예전엔 "부산" → 같은 글자로 시작하는 부산진구=서면), "부산진구", "제주시"는 지점. "전라도·경상도·충청도"는 시도 둘, "서해(안)·남해안·동해안"은 그 바다를 낀 시도들 + 바다. 지역 없이 풍경만이면 **전국**. 카페·식당·맛집 같은 가게 종류는 지역 후보가 아니고, 명소는 이름이 낱말과 같거나 낱말(3자 이상)로 시작할 때만, 시도를 알아들었으면 그 시도 안의 지점만 받습니다(`AiParseService.pickArea`: "제주 바다 감성 카페"의 "카페"가 경기 "카페도자기마을"로 잡혔던 적). **비·눈 + 풍경**은 실내로 바꾸지 않고 "비 오는 날"로만 둡니다("실내", "추워서"처럼 실내를 바라는 말이 있으면 실내). 화면: 지점이 있으면 그 반경(+ `scene`), 없으면 `/search?sido=…&scene=…` 로 시도 전체·전국 순위(지도는 결과가 다 보이게).
 - **상권·건물 이름·메뉴**: 우리 지역 데이터에 없는 이름("안양일번가")은 세 글자 이상 앞의 두 낱말을 네이버 지역 검색으로(`LocationSearchService.searchNamed`: 가게 이름에 그 말이 든 첫 곳 자리, 종류 `named`, 반경 800m. 지역 검색창도 우리 데이터·주소로 못 찾으면 같은 방법). 메뉴(`course/util/Foods`, 16가지: 햄버거·초밥·고기…)는 `food` 로 알아듣고 지역 후보에서 뺍니다. 코스 검색의 `food` 는 **거르지 않고** 식당·카페·술집 단계 이름·업종이 맞는 코스에 +30점(`CourseQueryRepository.FOOD_WEIGHT`), 응답에 `foodTotal`(맞는 코스 수)·카드마다 `foodMatched`. 맞는 코스가 없으면 화면이 알리고, 코스 상세(`?food=`)의 "근처 ○○ 가게 찾기"가 첫 식당 앞에서 그 메뉴로 가게 찾기를 엽니다. 자동 코스가 체인·간단한 음식점을 덜 골라 햄버거집이 든 코스가 전국 54개(안양 0개)뿐이라 거르지 않습니다.
 - **가게 이름**: 지역 검색·AI 검색이 이름이 똑같은 카페·식당·술집·소품샵·놀거리를 `shop`(`placeId`·`category`)으로 찾습니다(`LocationSearchRepository.shops`: 같은 이름이 3곳 넘으면 체인이라 빼고, "어니언 성수"·"스타벅스 반석"처럼 지점·동네를 붙이면 `shopBranch` 로 그 지점, "…점"은 떼고도 봄. 네이버에서 이름이 똑같으면 `placeId` 없는 `shop`). AI 검색은 이웃한 두 낱말을 먼저 붙여 보고, 가게는 세 글자 이상 낱말만. 코스 검색 `shop=id` 는 그 가게가 든 코스에 +100점(`SHOP_WEIGHT`), 응답 `shopTotal`·카드 `shopMatched`. 화면(`lib/shop.ts`)은 가게를 주소(`shop`·`sname`·`slat`·`slng`·`saddr`·`scat`)에 싣고, 그 가게가 없는 코스에 "○○ 넣어 보기" → 코스 상세가 처음 열 때 같은 종류 단계를 그 가게로 바꿈(`withShop`: 카페 → 카페, 식당·술집 → 식당, 그 밖에는 끼움, 이미 있으면 안 바꿈). 홈의 지역 검색에서 가게를 고르면 바로 코스 순위로 갑니다.
+- **AI 검색 시험 모음**(`src/test/resources/ai-eval/queries.tsv`, `AiParseEvalTests`, `@Tag("integration")`): 사용 중에 틀렸던 문장과 대표 문장 40개를 실제 장소 데이터로 알아듣게 하고 칸마다(지역·시도·풍경·메뉴·키워드·실내외·예산) 기대와 비교합니다. AI 는 끄고(규칙 + 우리 데이터만, 같은 문장이면 같은 결과) 캐시는 돌릴 때마다 새 접두어(`healing-room:date-course-eval:{시각}:`)라 운영 캐시를 건드리지 않습니다. 90% 아래면 실패, 결과는 `build/reports/ai-eval.txt`. 규칙·지역 검색을 고치면 `./gradlew test --tests "*AiParseEvalTests"` 로 돌리고, 새로 틀린 문장을 찾으면 파일에 더합니다. 처음 돌렸을 때 30/39 였고("부산 바다"·"제주도 카페"·"막걸리"가 그런 이름의 가게로 잡힘: 같은 이름 가게를 시도 안에서만 셌던 탓) 고친 뒤 39/39(네이버 키가 필요한 1개는 로컬에서 건너뜀).
 - **AI 추천**(`POST /api/ai/recommend`, `AiRecommendService`, RAG): 검색 = 지금 순위 첫 쪽 8개 + 요청 문장과 비슷한 코스(임베딩, 같은 반경, 최대 4개) → 후보 최대 12개(작은 모델이 뒤 번호를 자주 골라 순위 위쪽만). 생성 = Ollama 에게 후보 번호(순위 순)·실제 정보(제목·지역·단계 장소(업종)·키워드)만 주고 3개까지 고르게. 비슷하면 앞 번호, **요청한 사람이 누구인지(첫 데이트·오래 만난 커플 등) 추측하지 않음**. 답 예시를 그대로 주고 번호만 온 답(`[10, 19, 20]`)도 이유 없이 받음, 화면에는 순위 순서로. 검수 = 후보에 없는 번호·중복은 버리고, 이유에 다른 후보의 장소 이름이나 지어낸 가격·시간·거리("2만원", "10시")가 있으면 이유만 뺍니다. 실패·바쁨이면 순위 위 3개(`ai=false`, 바쁘면 "지금은 AI 가 바빠서…", 답을 쓸 수 없으면 "AI 답을 쓸 수 없어서…", 로그에는 답의 키·개수만). 이유 검수는 다른 후보 장소 이름이 통째로 있거나, 이유의 4자 이상 낱말(조사 뗌)이 다른 후보 장소 이름의 일부인데 이 코스엔 없을 때도 이유를 뺍니다("송도해상케이블카에서"). 시도 전체·전국이면 그 순위 12개가 후보(임베딩 후보는 지점 반경일 때만). **가게 이름으로 찾았으면**(`shopName`·`shopCategory`, "오리재") 후보마다 같은 종류 단계를 그 가게로 바꿔(`AiRecommendService.withShop`, 화면 "넣어 보기"와 같은 규칙) AI 에게 보여주고 프롬프트에 "요청한 가게: 오리재(식당), 후보에 넣어 두었다"를 더합니다. 고른 코스는 `withShop` 이면 화면이 그 가게를 넣은 일정으로 엽니다(예전에는 가게를 모른 채 골라 "오리 재료" 같은 이유를 지어냈음). "다시 추천"은 본 코스를 `exclude` 로 넘깁니다. 코스 순위 화면은 주소에 `q`(AI 검색 문장)가 있을 때만 이 칸을 보여주고, **누를 때만** 부릅니다.
 - **코스 임베딩**(`CourseEmbeddingService`, `course_embedding` V7): 코스를 "지역 제목. 장소(업종) → …. 키워드: …" 글로 만들어 32개씩 임베딩(서버 GPU 로 약 0.7초). 만들기는 수집기 `--collect=embeddings`(코스를 다시 만들 때도 저절로, 글 해시가 같으면 건너뜀). 로컬에서 돌릴 때는 서버 Ollama 로 터널: `ssh -N -L 11434:127.0.0.1:11434 ai-server`. 운영 앱은 DB 의 벡터만 메모리에 올려(1만여 개 × 768 ≈ 36MB, 켜질 때·6시간마다) 내적으로 비교합니다. pgvector 는 설치하지 않았습니다.
 - **문(`AiGate`)**: 포트폴리오 챗봇이 먼저라 이 서버에서는 한 번에 하나(8초 기다려 차례가 안 오면 바쁨 → 순위로), 사이트 하루 500번·IP 한 시간 20번(넘으면 429), Redis 가 안 되면 부르지 않음.
@@ -349,6 +360,7 @@ cd backend
 - [x] 개인정보처리방침(`/privacy`, 2026-10-29 시행), 코드 지우기
 - [x] 실험 기능: AI 검색(규칙 + Ollama)·AI 추천(코스 임베딩 + 후보 안에서 고르기, V7) (2026-11-02)
 - [ ] 좋아요·다녀왔어요(반응), 관리자 화면(제안 승인)
+- [x] 일정 공유 링크(V8, 90일), 날씨 예보(Open-Meteo), AI 검색 시험 모음 39/39 (2026-11-03)
 - [x] 배포 준비: jar 하나(화면 포함), deploy/(systemd·nginx·ci-receive·install-root), GitHub Actions
 - [x] 배포 (2026-10-29): 배포 키, `install-root.sh`(서비스·nginx·HTTPS), 첫 자동 배포 성공 → https://date-course.kimseongmin.co.kr
 - [x] 지역 검색: 동네·명소(우리 데이터), 주소(네이버 Geocoding), 검색하면 바로 그 위치로

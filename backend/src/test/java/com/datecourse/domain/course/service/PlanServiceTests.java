@@ -3,6 +3,7 @@ package com.datecourse.domain.course.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -171,5 +172,29 @@ class PlanServiceTests {
         given(plans.count(visitor)).willReturn(PlanService.MAX_PLANS);
         assertThatThrownBy(() -> service.save(visitor, 8, new PlanSaveRequest(null, "14:00",
                 List.of(new PlanStepRequest(11L, "spot", 60, null, "course", 1))))).hasMessageContaining("50개까지");
+    }
+
+    @Test
+    void 공유_링크는_일정을_그대로_떠_두고_무작위_주소를_준다() {
+        given(plans.courseExists(7)).willReturn(true);
+        given(places.placesByIds(anyList())).willReturn(List.of(place(11, "미술관", 0)));
+        PlanSaveRequest req = new PlanSaveRequest("2026-11-08", "14:00",
+                List.of(new PlanStepRequest(11L, "spot", 45, null, "course", 1, null)));
+
+        String token = service.share(visitor, 7, req);
+
+        assertThat(token).matches("[0-9A-Za-z]{10}");
+        verify(plans).insertShare(eq(token), eq(visitor), eq(7L), eq(LocalDate.parse("2026-11-08")), eq(840), anyString(), any());
+        verify(suggestions, never()).record(any(), any(), any(), anyDouble(), anyDouble());   // 공유는 이용자 제안으로 모으지 않음
+
+        given(plans.sharesToday(visitor)).willReturn(PlanService.SHARES_PER_DAY);
+        assertThatThrownBy(() -> service.share(visitor, 7, req)).isInstanceOf(CourseException.class);   // 하루 한도
+    }
+
+    @Test
+    void 이상한_공유_주소나_없는_링크는_404() {
+        assertThatThrownBy(() -> service.shared("../etc")).isInstanceOf(CourseException.class);
+        given(plans.findShare("AbCdEf1234")).willReturn(Optional.empty());
+        assertThatThrownBy(() -> service.shared("AbCdEf1234")).isInstanceOf(CourseException.class);
     }
 }

@@ -118,6 +118,18 @@ export interface CourseDetail {
   steps: StepDetail[]
 }
 
+/** 그날 날씨 (GET /api/weather). available 이 false 면 예보 없음(지난 날·16일보다 먼 날) */
+export interface Weather {
+  available: boolean
+  date: string
+  label: string | null
+  emoji: string | null
+  rainProbability: number | null
+  tempMin: number | null
+  tempMax: number | null
+  rainy: boolean
+}
+
 export interface LocationResult {
   kind: 'area' | 'station' | 'place' | 'address' | 'named' | 'shop'
   name: string
